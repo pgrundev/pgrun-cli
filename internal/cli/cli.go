@@ -31,9 +31,11 @@ Usage:
   pgrun branch delete <project> <name> [--json]
   pgrun auth set --token <token> [--url <url>]
   pgrun auth status
+  pgrun mcp serve
   pgrun version
 
 Config resolution (highest wins): --url/--token flags > PGRUN_API_URL/PGRUN_API_TOKEN env > ~/.config/pgrun/config.json
+mcp serve reads config from PGRUN_API_URL/PGRUN_API_TOKEN env only (no flags, no config file).
 `
 
 // Run parses args (excluding the program name), executes the command, and
@@ -49,6 +51,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runBranch(args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr)
+	case "mcp":
+		return runMCP(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintf(stdout, "pgrun %s\n", Version)
 		return exitSuccess

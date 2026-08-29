@@ -79,6 +79,8 @@ func TestUsageErrors(t *testing.T) {
 		{"auth"},                                                   // missing subcommand
 		{"auth", "set"},                                            // missing --token
 		{"auth", "bogus"},                                          // unknown subcommand
+		{"mcp"},                                                    // missing "serve"
+		{"mcp", "bogus"},                                           // not "serve"
 	}
 	for _, args := range cases {
 		code, _, stderr := run(t, args...)
