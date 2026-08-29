@@ -12,6 +12,14 @@ import (
 // message. In --json mode it also dumps the raw error body (the API's own
 // {"error": "..."} JSON) to stdout, if one was received.
 func handleAPIError(err error, jsonOut bool, raw []byte, stdout, stderr io.Writer) int {
+	var nameErr *api.InvalidNameError
+	if errors.As(err, &nameErr) {
+		// Never reached the API — a malformed argument, not an operation/API
+		// failure, so it gets the usage exit code like a bad flag would.
+		fmt.Fprintf(stderr, "pgrun: %v\n", err)
+		return exitUsage
+	}
+
 	var authErr *api.AuthError
 	if errors.As(err, &authErr) {
 		if jsonOut && raw != nil {

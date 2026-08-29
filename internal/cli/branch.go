@@ -31,14 +31,6 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func validTTL(ttl string) bool {
-	switch ttl {
-	case "1h", "6h", "24h", "7d":
-		return true
-	}
-	return false
-}
-
 func branchCreate(args []string, stdout, stderr io.Writer) int {
 	positional, rest, err := splitPositional(args, 1)
 	if err != nil {
@@ -64,7 +56,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	if *name == "" {
 		return usageErrf(stderr, "branch create: --name is required")
 	}
-	if *ttl != "" && !validTTL(*ttl) {
+	if *ttl != "" && !api.ValidTTL(*ttl) {
 		return usageErrf(stderr, "branch create: --ttl must be one of 1h, 6h, 24h, 7d")
 	}
 	jsonOut := *jsonFlag
@@ -106,25 +98,29 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 		return handleAPIError(err, jsonOut, raw, stdout, stderr)
 	}
 
-	if jsonOut {
-		dumpJSON(stdout, raw)
-		return exitSuccess
-	}
-	switch branch.Status {
-	case api.StatusReady:
+	// branch.Status is Terminal here (WaitForTerminal only returns nil err at
+	// a terminal status) — ready is the one successful outcome; every other
+	// terminal status (failed/deleted/stopped/unhealthy) is a failure, and
+	// that must hold in --json mode too: the exit code reflects the actual
+	// outcome regardless of output format, --json only changes how it's
+	// reported.
+	if branch.Status == api.StatusReady {
+		if jsonOut {
+			dumpJSON(stdout, raw)
+			return exitSuccess
+		}
 		if branch.ConnectionURL == "" {
 			fmt.Fprintf(stderr, "pgrun: branch %s is ready but has no connection_url yet\n", branch.Name)
 			return exitFailure
 		}
 		fmt.Fprintf(stdout, "DATABASE_URL=%s\n", branch.ConnectionURL)
 		return exitSuccess
-	case api.StatusFailed:
-		fmt.Fprintf(stderr, "pgrun: branch %s failed\n", branch.Name)
-		return exitFailure
-	default:
-		fmt.Fprintf(stderr, "pgrun: branch %s ended in unexpected status %q\n", branch.Name, branch.Status)
-		return exitFailure
 	}
+	if jsonOut {
+		dumpJSON(stdout, raw)
+	}
+	fmt.Fprintf(stderr, "pgrun: %s\n", api.WaitFailureReason(branch.Name, branch.Status))
+	return exitFailure
 }
 
 func branchList(args []string, stdout, stderr io.Writer) int {

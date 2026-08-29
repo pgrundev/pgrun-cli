@@ -276,3 +276,61 @@ func TestPathEscaping(t *testing.T) {
 		t.Fatalf("path not escaped: %s", gotPath)
 	}
 }
+
+// TestInvalidPathSegment_NeverHitsTheNetwork covers F3: "..", ".", and ""
+// must be rejected before any request is built — the handler calling
+// t.Fatal proves the client short-circuits rather than sending a
+// dot-segment path an HTTP stack might normalize into an unintended route.
+func TestInvalidPathSegment_NeverHitsTheNetwork(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+
+	for _, bad := range []string{"", ".", ".."} {
+		t.Run("project="+bad, func(t *testing.T) {
+			_, _, err := client.ListBranches(context.Background(), bad)
+			assertInvalidNameError(t, err, "project", bad)
+
+			_, _, err = client.CreateBranch(context.Background(), bad, CreateBranchRequest{Name: "x"})
+			assertInvalidNameError(t, err, "project", bad)
+
+			_, _, err = client.GetBranch(context.Background(), bad, "ok-name")
+			assertInvalidNameError(t, err, "project", bad)
+
+			_, _, err = client.DeleteBranch(context.Background(), bad, "ok-name")
+			assertInvalidNameError(t, err, "project", bad)
+		})
+		t.Run("name="+bad, func(t *testing.T) {
+			_, _, err := client.GetBranch(context.Background(), "ok-project", bad)
+			assertInvalidNameError(t, err, "name", bad)
+
+			_, _, err = client.DeleteBranch(context.Background(), "ok-project", bad)
+			assertInvalidNameError(t, err, "name", bad)
+		})
+	}
+}
+
+func assertInvalidNameError(t *testing.T, err error, wantField, wantValue string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	var nameErr *InvalidNameError
+	if !errors.As(err, &nameErr) {
+		t.Fatalf("expected *InvalidNameError, got %T: %v", err, err)
+	}
+	if nameErr.Field != wantField || nameErr.Value != wantValue {
+		t.Fatalf("got Field=%q Value=%q, want Field=%q Value=%q", nameErr.Field, nameErr.Value, wantField, wantValue)
+	}
+}
+
+// TestValidTTL locks in the four accepted values (and that "" is NOT one of
+// them — callers check emptiness separately) shared by the CLI and MCP.
+func TestValidTTL(t *testing.T) {
+	valid := map[string]bool{"1h": true, "6h": true, "24h": true, "7d": true}
+	for _, ttl := range []string{"1h", "6h", "24h", "7d", "", "2h", "1H", "1hour", "-1h"} {
+		if got, want := ValidTTL(ttl), valid[ttl]; got != want {
+			t.Errorf("ValidTTL(%q) = %v, want %v", ttl, got, want)
+		}
+	}
+}

@@ -317,6 +317,76 @@ func TestBranchCreate_Wait_FailedSequence(t *testing.T) {
 	}
 }
 
+// TestBranchCreate_Wait_DeletedSequence is F1's scripted-poll case: a branch
+// observed as "deleted" mid-wait must stop the loop immediately (not run
+// out the --timeout), exit 1, and name the reason — never DATABASE_URL.
+func TestBranchCreate_Wait_DeletedSequence(t *testing.T) {
+	withFastPoll(t)
+	var calls int32
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating"}`))
+		case r.Method == http.MethodGet:
+			n := atomic.AddInt32(&calls, 1)
+			if n < 2 {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"deleted"}`))
+		}
+	})
+	start := time.Now()
+	// A generous 10s timeout deliberately — if this regresses to the
+	// timeout path instead of stopping on "deleted", the test goes slow
+	// rather than silently passing.
+	code, out, stderr := run(t, "branch", "create", "proj1", "--name", "feature-x", "--wait", "--timeout", "10s")
+	elapsed := time.Since(start)
+
+	if code != exitFailure {
+		t.Fatalf("code = %d, want %d", code, exitFailure)
+	}
+	if strings.Contains(out, "DATABASE_URL") {
+		t.Fatalf("deleted branch must never print DATABASE_URL: %q", out)
+	}
+	if !strings.Contains(stderr, "deleted") {
+		t.Fatalf("stderr should name the deletion: %q", stderr)
+	}
+	if strings.Contains(stderr, "timed out") {
+		t.Fatalf("must stop on the terminal status, not the timeout: %q", stderr)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("took %s — looks like it waited out the 10s timeout instead of stopping on \"deleted\"", elapsed)
+	}
+}
+
+// TestBranchCreate_Wait_JSON_FailedExitsFailure locks in that --json still
+// reflects the real outcome in its exit code — --json changes how the
+// result is reported, never whether it's a failure.
+func TestBranchCreate_Wait_JSON_FailedExitsFailure(t *testing.T) {
+	withFastPoll(t)
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating"}`))
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"failed"}`))
+		}
+	})
+	code, out, _ := run(t, "branch", "create", "proj1", "--name", "feature-x", "--wait", "--timeout", "5s", "--json")
+	if code != exitFailure {
+		t.Fatalf("code = %d, want %d — --json must not mask a failed outcome", code, exitFailure)
+	}
+	if !strings.Contains(out, `"status":"failed"`) {
+		t.Fatalf("--json should still dump the raw failed body: %q", out)
+	}
+}
+
 func TestBranchCreate_Wait_Timeout(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -348,6 +418,37 @@ func TestBranchCreate_BadTTLIsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--ttl") {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+// TestBranchCreate_InvalidProjectName_ExitsUsage is F3's CLI-level case: a
+// project name of ".." must never reach the network, and the CLI reports it
+// as a usage error (64), not an operation failure.
+func TestBranchCreate_InvalidProjectName_ExitsUsage(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	code, _, stderr := run(t, "branch", "create", "..", "--name", "x")
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, `".."`) {
+		t.Fatalf("stderr should name the bad value: %q", stderr)
+	}
+}
+
+// TestBranchGet_InvalidBranchName_ExitsUsage covers the "name" path segment
+// (distinct from "project"), which only GetBranch/DeleteBranch have.
+func TestBranchGet_InvalidBranchName_ExitsUsage(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	code, _, stderr := run(t, "branch", "get", "proj1", "..")
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, `".."`) {
+		t.Fatalf("stderr should name the bad value: %q", stderr)
 	}
 }
 

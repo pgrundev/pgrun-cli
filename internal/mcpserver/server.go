@@ -206,6 +206,10 @@ func toolError(msg string) any {
 
 // apiToolError maps a Client error to a sanitized isError result.
 func apiToolError(err error) any {
+	var nameErr *api.InvalidNameError
+	if errors.As(err, &nameErr) {
+		return toolError(err.Error())
+	}
 	var authErr *api.AuthError
 	if errors.As(err, &authErr) {
 		return toolError("authentication failed — the configured PGRUN_API_TOKEN was rejected")
@@ -233,6 +237,9 @@ func (s *Server) toolCreateBranch(ctx context.Context, raw json.RawMessage) any 
 	}
 	if a.Project == "" || a.Name == "" {
 		return toolError("project and name are required")
+	}
+	if a.TTL != "" && !api.ValidTTL(a.TTL) {
+		return toolError(fmt.Sprintf("ttl must be one of 1h, 6h, 24h, 7d (got %q)", a.TTL))
 	}
 
 	wait := true
@@ -262,6 +269,11 @@ func (s *Server) toolCreateBranch(ctx context.Context, raw json.RawMessage) any 
 			return toolError(fmt.Sprintf("timed out waiting for branch %s to become ready (last status: %s)", branch.Name, branch.Status))
 		}
 		return apiToolError(err)
+	}
+	// branch.Status is Terminal here — ready is the one success; any other
+	// terminal status (failed/deleted/stopped/unhealthy) is a wait failure.
+	if branch.Status != api.StatusReady {
+		return toolError(api.WaitFailureReason(branch.Name, branch.Status))
 	}
 	return jsonContent(respRaw)
 }

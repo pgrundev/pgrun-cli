@@ -74,10 +74,16 @@ type Branch struct {
 	ConnectionURL   string `json:"connection_url"`
 }
 
-// Terminal statuses for the create --wait poll loop.
+// Branch statuses. creating/snapshotting/provisioning/starting/deleting are
+// in-progress; the rest are terminal (see Terminal in wait.go) — a branch
+// stops moving on its own once it reaches one of them.
 const (
-	StatusReady  = "ready"
-	StatusFailed = "failed"
+	StatusReady     = "ready"
+	StatusFailed    = "failed"
+	StatusDeleting  = "deleting"
+	StatusDeleted   = "deleted"
+	StatusStopped   = "stopped"
+	StatusUnhealthy = "unhealthy"
 )
 
 // CreateBranchRequest is the POST body. TTL and ParentBranchID are omitted
@@ -86,6 +92,19 @@ type CreateBranchRequest struct {
 	Name           string `json:"name"`
 	TTL            string `json:"ttl,omitempty"`
 	ParentBranchID string `json:"parent_branch_id,omitempty"`
+}
+
+// ValidTTL reports whether ttl is one of the server's four accepted values.
+// It does NOT accept "" — callers that treat an empty ttl as "no TTL" check
+// that separately. Shared by the CLI and the MCP server so both validate
+// client-side (a fast, clear error instead of a round trip) against
+// identical rules instead of two copies that could drift.
+func ValidTTL(ttl string) bool {
+	switch ttl {
+	case "1h", "6h", "24h", "7d":
+		return true
+	}
+	return false
 }
 
 // branchList is the GET .../branches envelope.
@@ -98,10 +117,37 @@ type deleteResponse struct {
 	Status string `json:"status"`
 }
 
+// InvalidNameError is returned before any request is sent when a project or
+// branch name would produce a dangerous or nonsensical URL path segment —
+// empty, ".", or ".." (dot-segments an HTTP stack may normalize away,
+// silently redirecting the request to an unintended path). Defense in
+// depth: the server also validates names, but a value like this should
+// never even leave the process. Not an APIError/AuthError — no request was
+// made, so there's no status code or server response to carry.
+type InvalidNameError struct {
+	Field string // "project" or "name"
+	Value string
+}
+
+func (e *InvalidNameError) Error() string {
+	return fmt.Sprintf("invalid %s %q — must not be empty, \".\", or \"..\"", e.Field, e.Value)
+}
+
+func validatePathSegment(field, value string) error {
+	switch value {
+	case "", ".", "..":
+		return &InvalidNameError{Field: field, Value: value}
+	}
+	return nil
+}
+
 // CreateBranch issues POST .../branches. raw is the response body regardless
 // of success (useful for --json passthrough even on error); branch is only
 // valid when err is nil.
 func (c *Client) CreateBranch(ctx context.Context, project string, req CreateBranchRequest) (raw []byte, branch Branch, err error) {
+	if err := validatePathSegment("project", project); err != nil {
+		return nil, Branch{}, err
+	}
 	raw, err = c.do(ctx, http.MethodPost, branchesPath(project), req, http.StatusCreated)
 	if err != nil {
 		return raw, Branch{}, err
@@ -114,6 +160,9 @@ func (c *Client) CreateBranch(ctx context.Context, project string, req CreateBra
 
 // ListBranches issues GET .../branches.
 func (c *Client) ListBranches(ctx context.Context, project string) (raw []byte, branches []Branch, err error) {
+	if err := validatePathSegment("project", project); err != nil {
+		return nil, nil, err
+	}
 	raw, err = c.do(ctx, http.MethodGet, branchesPath(project), nil, http.StatusOK)
 	if err != nil {
 		return raw, nil, err
@@ -128,6 +177,12 @@ func (c *Client) ListBranches(ctx context.Context, project string) (raw []byte, 
 // GetBranch issues GET .../branches/<name>. connection_url is present only
 // when the branch is ready and credentialed — the server decides, not us.
 func (c *Client) GetBranch(ctx context.Context, project, name string) (raw []byte, branch Branch, err error) {
+	if err := validatePathSegment("project", project); err != nil {
+		return nil, Branch{}, err
+	}
+	if err := validatePathSegment("name", name); err != nil {
+		return nil, Branch{}, err
+	}
 	raw, err = c.do(ctx, http.MethodGet, branchPath(project, name), nil, http.StatusOK)
 	if err != nil {
 		return raw, Branch{}, err
@@ -141,6 +196,12 @@ func (c *Client) GetBranch(ctx context.Context, project, name string) (raw []byt
 // DeleteBranch issues DELETE .../branches/<name>. Deleting a base branch
 // (one with children) yields a 409 APIError.
 func (c *Client) DeleteBranch(ctx context.Context, project, name string) (raw []byte, status string, err error) {
+	if err := validatePathSegment("project", project); err != nil {
+		return nil, "", err
+	}
+	if err := validatePathSegment("name", name); err != nil {
+		return nil, "", err
+	}
 	raw, err = c.do(ctx, http.MethodDelete, branchPath(project, name), nil, http.StatusAccepted)
 	if err != nil {
 		return raw, "", err

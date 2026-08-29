@@ -237,6 +237,115 @@ func TestCreateBranch_Wait(t *testing.T) {
 	s.closeAndWait()
 }
 
+// TestCreateBranch_Wait_DeletedIsError is F1's scripted-poll case for MCP: a
+// branch observed "deleted" mid-wait must stop the loop immediately (not
+// run out timeout_seconds) and come back isError:true naming the deletion.
+func TestCreateBranch_Wait_DeletedIsError(t *testing.T) {
+	old := api.PollInterval
+	api.PollInterval = time.Millisecond
+	t.Cleanup(func() { api.PollInterval = old })
+
+	calls := 0
+	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"branch_2","name":"feature-x","status":"creating"}`))
+			return
+		}
+		calls++
+		w.WriteHeader(http.StatusOK)
+		if calls < 2 {
+			w.Write([]byte(`{"id":"branch_2","name":"feature-x","status":"creating"}`))
+			return
+		}
+		w.Write([]byte(`{"id":"branch_2","name":"feature-x","status":"deleted"}`))
+	})
+	s := startSession(t, client)
+
+	start := time.Now()
+	s.send(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "pgrun_create_branch", "arguments": map[string]any{
+			"project": "proj1", "name": "feature-x", "timeout_seconds": 10,
+		}},
+	})
+	resp := s.recv()
+	elapsed := time.Since(start)
+
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a result carrying isError, got: %+v", resp)
+	}
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("isError = %v, want true", result["isError"])
+	}
+	text := firstContentText(t, resp)
+	if !strings.Contains(text, "deleted") {
+		t.Fatalf("message should name the deletion: %s", text)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("took %s — looks like it waited out timeout_seconds instead of stopping on \"deleted\"", elapsed)
+	}
+	s.closeAndWait()
+}
+
+// TestCreateBranch_InvalidTTL_IsError is F2: a bad ttl must be rejected
+// before any request is sent (the handler failing the test proves it), with
+// isError naming the valid set.
+func TestCreateBranch_InvalidTTL_IsError(t *testing.T) {
+	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	s := startSession(t, client)
+
+	s.send(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "pgrun_create_branch", "arguments": map[string]any{
+			"project": "proj1", "name": "feature-x", "ttl": "2h",
+		}},
+	})
+	resp := s.recv()
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a result carrying isError, got: %+v", resp)
+	}
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("isError = %v, want true", result["isError"])
+	}
+	text := firstContentText(t, resp)
+	for _, want := range []string{"1h", "6h", "24h", "7d"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("message should name the valid ttl set, missing %q: %s", want, text)
+		}
+	}
+	s.closeAndWait()
+}
+
+// TestCreateBranch_InvalidProjectName_IsError is F3's MCP-level case: ".."
+// must never reach the network.
+func TestCreateBranch_InvalidProjectName_IsError(t *testing.T) {
+	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	s := startSession(t, client)
+
+	s.send(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "pgrun_get_branch", "arguments": map[string]any{
+			"project": "..", "name": "feature-x",
+		}},
+	})
+	resp := s.recv()
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a result carrying isError, got: %+v", resp)
+	}
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("isError = %v, want true", result["isError"])
+	}
+	s.closeAndWait()
+}
+
 func TestMalformedJSONLine_NoCrash(t *testing.T) {
 	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
