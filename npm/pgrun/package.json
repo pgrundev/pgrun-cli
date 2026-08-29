@@ -1,0 +1,38 @@
+{
+  "name": "@pgrun/cli",
+  "version": "0.0.0-dev",
+  "description": "Create, use, and delete disposable PGRun Postgres branches — CLI and MCP server.",
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "database",
+    "branching",
+    "ephemeral",
+    "mcp",
+    "cli"
+  ],
+  "homepage": "https://github.com/pgrundev/pgrun#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pgrundev/pgrun.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "pgrun": "bin/pgrun.js"
+  },
+  "files": [
+    "bin/pgrun.js",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@pgrun/linux-x64": "0.0.0-dev",
+    "@pgrun/linux-arm64": "0.0.0-dev",
+    "@pgrun/darwin-x64": "0.0.0-dev",
+    "@pgrun/darwin-arm64": "0.0.0-dev",
+    "@pgrun/win32-x64": "0.0.0-dev",
+    "@pgrun/win32-arm64": "0.0.0-dev"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

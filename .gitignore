@@ -1,0 +1,6 @@
+/bin/
+/dist/
+/pgrun
+
+# npm packaging build output (assembled by npm/build.mjs)
+npm/staging/
