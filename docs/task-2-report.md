@@ -201,3 +201,138 @@ integration.
    scaffolding is therefore less exercised than pgbot's; fine for
    publish-deferred scaffolding, worth revisiting before an actual npm
    publish.
+
+## Review round 2 — controller-ruled fixes (F1-F4)
+
+Four items came back from review. All four addressed; commits below.
+
+**F1 — `Terminal()` only covered ready/failed.** A branch that got deleted,
+stopped, or went unhealthy mid-`--wait` fell through to the timeout path
+instead of stopping immediately — the poll loop kept polling a branch that
+was never going anywhere until the caller's `--timeout`/`timeout_seconds`
+finally expired, then reported a generic "timed out" instead of the real
+reason. Fixed in `internal/api/wait.go`: `Terminal()` now covers all five
+non-progressing statuses (`ready`, `failed`, `deleted`, `stopped`,
+`unhealthy`); a new `WaitFailureReason(name, status)` gives one specific,
+shared message per outcome (`"branch X was deleted while waiting"`, etc.),
+called from both `internal/cli/branch.go` and
+`internal/mcpserver/server.go#toolCreateBranch` so the two surfaces can't
+drift on wording. Also fixed a real bug this surfaced while touching the
+same code: `branch create --wait --json` was unconditionally exiting 0
+after any successful wait, even when the terminal status was `failed` —
+`--json` was masking the outcome instead of just changing how it's
+reported. Same bug existed in the MCP path (`toolCreateBranch` always
+returned a non-`isError` result after `WaitForTerminal` succeeded,
+regardless of status) and is fixed the same way: check `branch.Status ==
+StatusReady` explicitly before treating the wait as a success, in both
+places.
+Tests: `internal/api/wait_test.go` (`TestTerminal`, `TestWaitFailureReason`,
+and `TestWaitForTerminal_DeletedStopsImmediately` — a scripted "deleted at
+the 2nd poll" sequence against an `httptest` server with a generous 2s
+context timeout, asserting it returns in well under 500ms so a regression
+back to the timeout path would make the test visibly slow, not silently
+green); `internal/cli/cli_test.go`
+(`TestBranchCreate_Wait_DeletedSequence`, same shape, 10s timeout budget,
+asserts <2s elapsed and that stderr never says "timed out";
+`TestBranchCreate_Wait_JSON_FailedExitsFailure` locks in the exit-code fix);
+`internal/mcpserver/server_test.go`
+(`TestCreateBranch_Wait_DeletedIsError`, same pattern via `timeout_seconds`).
+
+**F2 — MCP `pgrun_create_branch` didn't validate `ttl` client-side.** It
+relied entirely on the server's 422, unlike the CLI's `branch create`. Fixed
+by adding `api.ValidTTL(ttl string) bool` to `internal/api/client.go` (the
+four accepted values, `""` excluded — callers check emptiness separately)
+and calling it from **both** `internal/cli/branch.go` (replacing the
+previous CLI-local `validTTL`, removing the exact duplication the reviewer
+was worried about) and `toolCreateBranch` before ever calling `CreateBranch`.
+A bad value returns `isError` naming the valid set: `"ttl must be one of
+1h, 6h, 24h, 7d (got %q)"`.
+Test: `TestCreateBranch_InvalidTTL_IsError` in `server_test.go` — points the
+client at a handler that calls `t.Fatal` if hit at all, proving validation
+happens before any request; `TestValidTTL` in `client_test.go` for the
+shared function directly.
+
+**F3 — no defense-in-depth against `.`/`..`/empty path segments.** Added
+`InvalidNameError{Field, Value}` and `validatePathSegment` to
+`internal/api/client.go`, called at the top of `CreateBranch` (project
+only — branch `name` is a JSON body field for create, not a path segment),
+`ListBranches` (project only), and `GetBranch`/`DeleteBranch` (both project
+and name) — before any request is built. `handleAPIError` (CLI) checks for
+`*api.InvalidNameError` first and maps it to **exit 64** (a malformed
+argument, not an operation/API failure — deliberately distinct from the
+generic exit-1 path every other client error takes); `apiToolError` (MCP)
+maps it to `isError`. Centralizing the check inside the four `Client`
+methods means the CLI and MCP server both get it for free from one place,
+rather than needing the same guard duplicated in `internal/cli` and
+`internal/mcpserver` separately.
+Tests: `TestInvalidPathSegment_NeverHitsTheNetwork` in `client_test.go`
+(table over `""`/`"."`/`".."`, both `project` and `name`, against a handler
+that fails the test if it's ever invoked — proves the client short-circuits
+rather than sending a dot-segment path an HTTP stack might normalize away);
+`TestBranchCreate_InvalidProjectName_ExitsUsage` and
+`TestBranchGet_InvalidBranchName_ExitsUsage` in `cli_test.go` (exit 64, same
+never-hits-the-network handler); `TestCreateBranch_InvalidProjectName_IsError`
+in `server_test.go`.
+
+Verification after F1-F3 (before touching `postgresrun_app`):
+```
+$ gofmt -l . && go vet ./... && go build ./...
+(all clean)
+$ go test ./... -race -count=1
+ok  	github.com/pgrundev/pgrun/internal/api	1.870s
+ok  	github.com/pgrundev/pgrun/internal/cli	1.315s
+ok  	github.com/pgrundev/pgrun/internal/config	1.644s
+ok  	github.com/pgrundev/pgrun/internal/mcpserver	1.485s
+```
+
+**F4 — `postgresrun_app`, on `agents-branching-docs`:**
+(a) The Branching section's `Base URL` line duplicated the `/branches` path
+against the endpoint bullets (`.../api/v1/projects/:project/branches` +
+`/projects/:project/branches` in each bullet). Fixed to end at `.../api/v1`,
+matching the file's own Database-intelligence section's convention; the
+bullets already carried the full `/projects/:project/branches...` paths, so
+this was a one-line fix.
+(b) The doc's 422-on-bad-`ttl` claim wasn't true server-side — `ttl_expires_at`
+silently ignored anything outside `TTL_CHOICES` and created the branch with
+no TTL. Added a guard at the top of both `create` actions (exact snippet the
+reviewer specified for the API controller): `Api::V1::BranchesController#create`
+now 422s `{"error"=>"invalid ttl — use 1h, 6h, 24h or 7d"}` before calling
+`Branching::CreateBranch`; `ProjectBranchesController#create` mirrors it
+(`flash.now[:alert]` + `render :new, status: :unprocessable_entity`) so a
+forged POST bypassing the `<select>`'s four options gets the same rejection
+the UI's own dropdown implies, instead of silently dropping the TTL.
+Replaced the now-inaccurate `api/v1/branches_controller_test.rb` test
+("invalid ttl choice leaves expires_at nil") with one asserting the 422 and
+its exact message, and added a `ttl: ""` case to confirm the guard's
+`.present?` check doesn't false-positive on "no TTL". Added a new
+`project_branches_controller_test.rb` test for the forged-ttl 422 + alert
+path. `skills/pgrun-branching/SKILL.md`'s failure-modes table already
+claimed "422 on bad ttl" — checked it, no change needed, it's simply
+accurate now.
+`bin/wt` didn't exist in `postgresrun_app` (only in the `.worktrees/demo`
+sibling checkout) — copied it over per instructions, stripping the
+`PGRUN_BRANCHING_ENABLED`/`ADMIN_EMAIL` lines (already git-ignored, confirmed
+via `git check-ignore -v bin/wt`).
+
+Verification (`postgresrun_app`, on `agents-branching-docs`):
+```
+$ bin/wt bin/test 2>&1 | tail -3
+918 runs, 3796 assertions, 0 failures, 0 errors, 1 skips
+```
+(916 baseline + 2 new tests = 918, matching the expected "918+/0F/1 skip".)
+```
+$ bin/wt bin/rubocop app/controllers/api/v1/branches_controller.rb app/controllers/project_branches_controller.rb
+2 files inspected, no offenses detected
+```
+
+## Commits (round 2)
+
+pgrun-cli (`main`):
+- `b832be7` — `fix: terminal wait states, MCP ttl validation, path-segment refusal`
+
+postgresrun_app (`agents-branching-docs`, still off `main` @ `5a38d0c`):
+- `27ed192` — `fix: agents.md base URL; 422 on invalid ttl (API+UI)`
+
+Checkout returned to `main` in `postgresrun_app` afterward, as instructed —
+`27ed192` (like `2e94713` before it) lives only on `agents-branching-docs`,
+awaiting merge.
