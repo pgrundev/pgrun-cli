@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/pgrundev/pgrun/internal/api"
 )
 
 // run is the test harness: it drives cli.Run and returns exit code, stdout,
@@ -249,9 +251,9 @@ func TestBranchCreate_JSON(t *testing.T) {
 // production cadence.
 func withFastPoll(t *testing.T) {
 	t.Helper()
-	old := pollInterval
-	pollInterval = time.Millisecond
-	t.Cleanup(func() { pollInterval = old })
+	old := api.PollInterval
+	api.PollInterval = time.Millisecond
+	t.Cleanup(func() { api.PollInterval = old })
 }
 
 func TestBranchCreate_Wait_ReadySequence(t *testing.T) {
@@ -381,16 +383,30 @@ func TestBranchCreate_409ExitsFailure(t *testing.T) {
 func TestBranchList_Table(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"branches":[{"id":"b1","name":"main","status":"ready"},{"id":"b2","name":"feature-x","status":"creating"}]}`))
+		w.Write([]byte(`{"branches":[` +
+			`{"id":"branch_1","name":"main","status":"ready","is_base":true,"parent_branch_id":null,"postgres_version":"17","created_at":"2026-08-01T00:00:00Z","expires_at":null},` +
+			`{"id":"branch_2","name":"feature-x","status":"creating","is_base":false,"parent_branch_id":"branch_1","postgres_version":"17","created_at":"2026-08-29T00:00:00Z","expires_at":"2026-08-30T00:00:00Z"}` +
+			`]}`))
 	})
 	code, out, _ := run(t, "branch", "list", "proj1")
 	if code != exitSuccess {
 		t.Fatalf("code = %d", code)
 	}
-	for _, want := range []string{"NAME", "STATUS", "BASE", "PARENT", "CREATED", "EXPIRES", "main", "feature-x"} {
+	for _, want := range []string{
+		"NAME", "STATUS", "BASE", "PARENT", "VERSION", "CREATED", "EXPIRES",
+		"main", "feature-x", "yes", "branch_1", "17",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q: %q", want, out)
 		}
+	}
+	// main is_base:true -> BASE column "yes"; feature-x is_base:false -> "-".
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected header + 2 rows, got %d lines: %q", len(lines), out)
+	}
+	if !strings.Contains(lines[2], "-") {
+		t.Fatalf("expected a dash for feature-x's non-base BASE column: %q", lines[2])
 	}
 }
 

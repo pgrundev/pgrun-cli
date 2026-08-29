@@ -31,10 +31,6 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// pollInterval is a var (not a const) so tests can shrink it instead of
-// waiting on the real 2s cadence.
-var pollInterval = 2 * time.Second
-
 func validTTL(ttl string) bool {
 	switch ttl {
 	case "1h", "6h", "24h", "7d":
@@ -98,7 +94,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), timeoutVal)
 	defer cancel()
-	raw, branch, err = pollUntilTerminal(waitCtx, client, project, raw, branch, pollInterval)
+	raw, branch, err = client.WaitForTerminal(waitCtx, project, raw, branch)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			if jsonOut {
@@ -128,28 +124,6 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintf(stderr, "pgrun: branch %s ended in unexpected status %q\n", branch.Name, branch.Status)
 		return exitFailure
-	}
-}
-
-// pollUntilTerminal polls GET every interval until the branch reaches
-// ready/failed, the context is done (timeout), or a request errors. It
-// always returns the most recent raw body it has, even on error, so callers
-// can still honor --json.
-func pollUntilTerminal(ctx context.Context, client *api.Client, project string, raw []byte, branch api.Branch, interval time.Duration) ([]byte, api.Branch, error) {
-	for {
-		if branch.Status == api.StatusReady || branch.Status == api.StatusFailed {
-			return raw, branch, nil
-		}
-		select {
-		case <-ctx.Done():
-			return raw, branch, ctx.Err()
-		case <-time.After(interval):
-		}
-		var err error
-		raw, branch, err = client.GetBranch(ctx, project, branch.Name)
-		if err != nil {
-			return raw, branch, err
-		}
 	}
 }
 

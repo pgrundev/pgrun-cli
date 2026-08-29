@@ -63,14 +63,15 @@ func (e *AuthError) Unwrap() error { return e.APIError }
 // server omits simply decode to their zero value — this struct is only used
 // for human-readable formatting; --json output always uses the raw bytes.
 type Branch struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Status         string `json:"status"`
-	BaseBranch     string `json:"base_branch"`
-	ParentBranchID string `json:"parent_branch_id"`
-	CreatedAt      string `json:"created_at"`
-	ExpiresAt      string `json:"expires_at"`
-	ConnectionURL  string `json:"connection_url"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	IsBase          bool   `json:"is_base"`
+	ParentBranchID  string `json:"parent_branch_id"` // e.g. "branch_3"; null decodes to ""
+	PostgresVersion string `json:"postgres_version"`
+	CreatedAt       string `json:"created_at"`
+	ExpiresAt       string `json:"expires_at"`
+	ConnectionURL   string `json:"connection_url"`
 }
 
 // Terminal statuses for the create --wait poll loop.

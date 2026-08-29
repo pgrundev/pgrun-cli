@@ -132,6 +132,56 @@ func TestGetBranch_ReadyIncludesConnectionURL(t *testing.T) {
 	}
 }
 
+// TestGetBranch_RealFieldShape locks in the exact JSON keys the live API
+// uses: is_base (bool, not a base_branch name string), parent_branch_id
+// ("branch_<id>" or null), postgres_version.
+func TestGetBranch_RealFieldShape(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"branch_2","name":"feature-x","status":"ready","is_base":false,` +
+			`"parent_branch_id":"branch_1","postgres_version":"17","created_at":"2026-08-29T00:00:00Z",` +
+			`"expires_at":"2026-08-30T00:00:00Z","connection_url":"postgres://u:p@host/db"}`))
+	})
+
+	_, branch, err := client.GetBranch(context.Background(), "proj1", "feature-x")
+	if err != nil {
+		t.Fatalf("GetBranch: %v", err)
+	}
+	want := Branch{
+		ID: "branch_2", Name: "feature-x", Status: "ready", IsBase: false,
+		ParentBranchID: "branch_1", PostgresVersion: "17",
+		CreatedAt: "2026-08-29T00:00:00Z", ExpiresAt: "2026-08-30T00:00:00Z",
+		ConnectionURL: "postgres://u:p@host/db",
+	}
+	if branch != want {
+		t.Fatalf("branch = %+v, want %+v", branch, want)
+	}
+}
+
+// TestGetBranch_BaseBranchNullParent covers the base row: is_base:true,
+// parent_branch_id:null (decodes to "").
+func TestGetBranch_BaseBranchNullParent(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"branch_1","name":"main","status":"ready","is_base":true,` +
+			`"parent_branch_id":null,"postgres_version":"17","created_at":"2026-08-01T00:00:00Z","expires_at":null}`))
+	})
+
+	_, branch, err := client.GetBranch(context.Background(), "proj1", "main")
+	if err != nil {
+		t.Fatalf("GetBranch: %v", err)
+	}
+	if !branch.IsBase {
+		t.Fatalf("IsBase = false, want true")
+	}
+	if branch.ParentBranchID != "" {
+		t.Fatalf("ParentBranchID = %q, want empty (null parent)", branch.ParentBranchID)
+	}
+	if branch.ExpiresAt != "" {
+		t.Fatalf("ExpiresAt = %q, want empty (no TTL)", branch.ExpiresAt)
+	}
+}
+
 func TestGetBranch_404(t *testing.T) {
 	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
