@@ -4,15 +4,20 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/pgrundev/pgrun/internal/config"
 )
 
 func runAuth(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usageErrf(stderr, "auth: expected a subcommand (set, status)")
+		return usageErrf(stderr, "auth: expected a subcommand (login, logout, set, status)")
 	}
 	switch args[0] {
+	case "login":
+		return authLogin(args[1:], os.Stdin, stdout, stderr)
+	case "logout":
+		return authLogout(args[1:], stdout, stderr)
 	case "set":
 		return authSet(args[1:], stdout, stderr)
 	case "status":
@@ -22,6 +27,11 @@ func runAuth(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// authSet implements `pgrun auth set` — the advanced/manual/CI path: writes
+// a token straight to the config file with no prompt and no verification
+// call. `pgrun auth login` (auth_login.go) is the everyday interactive path
+// for a human at a terminal; scripts and CI should prefer this or the
+// PGRUN_API_TOKEN/PGRUN_API_URL env vars, neither of which touch a TTY.
 func authSet(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("auth set", flag.ContinueOnError)
 	fs.SetOutput(stderr)

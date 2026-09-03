@@ -483,6 +483,38 @@ func TestBranchCreate_409ExitsFailure(t *testing.T) {
 	}
 }
 
+// TestBranchCreate_Wait_JSON_IncludesDatabaseURL is item 4's CLI half: a
+// --wait --json create must carry a "database_url" field once ready, in
+// addition to whatever the server already sent (including connection_url),
+// so an agent scripting against --json never needs a second call.
+func TestBranchCreate_Wait_JSON_IncludesDatabaseURL(t *testing.T) {
+	withFastPoll(t)
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating"}`))
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"id":"b1","name":"feature-x","status":"ready","connection_url":"postgres://u:p@host/feature-x"}`))
+		}
+	})
+	code, out, _ := run(t, "branch", "create", "proj1", "--name", "feature-x", "--wait", "--timeout", "5s", "--json")
+	if code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not valid JSON: %v (%s)", err, out)
+	}
+	if decoded["database_url"] != "postgres://u:p@host/feature-x" {
+		t.Fatalf("database_url = %v, want the connection_url value: %s", decoded["database_url"], out)
+	}
+	if decoded["id"] != "b1" || decoded["name"] != "feature-x" || decoded["status"] != "ready" {
+		t.Fatalf("--json should still carry the original fields: %s", out)
+	}
+}
+
 func TestBranchList_Table(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -16,6 +16,11 @@ type Config struct {
 	Token string `json:"token,omitempty"`
 }
 
+// DefaultURL is pgrun's built-in default API/dashboard host. `pgrun auth
+// login` pre-fills its URL prompt with this when nothing is configured yet
+// (an existing config file's URL, if any, takes priority over it).
+const DefaultURL = "https://app.pgrun.dev"
+
 // Path returns the fixed config file location, ~/.config/pgrun/config.json.
 func Path() (string, error) {
 	home, err := os.UserHomeDir()
