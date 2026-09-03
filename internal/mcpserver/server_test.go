@@ -234,6 +234,16 @@ func TestCreateBranch_Wait(t *testing.T) {
 	if !strings.Contains(text, `"status":"ready"`) || !strings.Contains(text, "postgres://u:p@host/feature-x") {
 		t.Fatalf("create wait (default true): unexpected content: %s", text)
 	}
+	// database_url is an agent-ergonomics alias for connection_url, added on
+	// top of the raw response once the branch is ready — an agent shouldn't
+	// need to know the API's own field name or make a second call for it.
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		t.Fatalf("content is not valid JSON: %v (%s)", err, text)
+	}
+	if decoded["database_url"] != "postgres://u:p@host/feature-x" {
+		t.Fatalf("database_url = %v, want the connection_url value: %s", decoded["database_url"], text)
+	}
 	s.closeAndWait()
 }
 

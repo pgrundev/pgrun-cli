@@ -275,6 +275,12 @@ func (s *Server) toolCreateBranch(ctx context.Context, raw json.RawMessage) any 
 	if branch.Status != api.StatusReady {
 		return toolError(api.WaitFailureReason(branch.Name, branch.Status))
 	}
+	if branch.ConnectionURL != "" {
+		// Agent ergonomics: add a "database_url" alias for connection_url so
+		// the tool result carries id/name/status/database_url from this one
+		// call — no second pgrun_get_branch just to learn the field name.
+		respRaw = api.WithDatabaseURL(respRaw, branch.ConnectionURL)
+	}
 	return jsonContent(respRaw)
 }
 

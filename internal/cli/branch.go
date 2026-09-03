@@ -110,7 +110,16 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	// reported.
 	if branch.Status == api.StatusReady {
 		if jsonOut {
-			dumpJSON(stdout, raw)
+			out := raw
+			if branch.ConnectionURL != "" {
+				// Agent ergonomics: add a "database_url" alias for
+				// connection_url so a --wait --json caller gets everything
+				// (id/name/status/database_url) from this one response,
+				// without needing to know the API's own field name or make
+				// a second `branch get` just to learn it.
+				out = api.WithDatabaseURL(raw, branch.ConnectionURL)
+			}
+			dumpJSON(stdout, out)
 			return exitSuccess
 		}
 		if branch.ConnectionURL == "" {
