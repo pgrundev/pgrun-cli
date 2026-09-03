@@ -37,44 +37,12 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
-# Homebrew formula, pushed to the pgrundev/homebrew-tap repo so
-# `brew install pgrundev/tap/pgrun` works. The workflow's GITHUB_TOKEN can't
-# write to another repo, so the push needs one of two credentials, both
-# passed by whatever release workflow eventually calls this (empty when the
-# secret is absent — both env vars MUST be defined or the templates error):
-#   HOMEBREW_TAP_DEPLOY_KEY — private half of a write deploy key on the tap
-#     repo → git+SSH push (preferred: scoped to exactly one repo, no expiry).
-#   HOMEBREW_TAP_TOKEN — a fine-grained PAT, repository access =
-#     homebrew-tap only, Contents: read/write → GitHub Contents API.
-# skip_upload is templated on both: with neither set, the formula is still
-# generated (dist/homebrew) but NOT pushed, so a release never fails for a
-# missing tap credential — matching pgbot's pattern (see its
-# .goreleaser.yaml for the fuller rationale). Publishing is explicitly
-# deferred for pgrun; this section exists so it's a credential away, not a
-# rewrite away.
-brews:
-  - name: pgrun
-    repository:
-      owner: pgrundev
-      name: homebrew-tap
-      branch: main
-      git:
-        url: "{{ if .Env.HOMEBREW_TAP_DEPLOY_KEY }}git@github.com:pgrundev/homebrew-tap.git{{ end }}"
-        private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    skip_upload: '{{ if or .Env.HOMEBREW_TAP_DEPLOY_KEY .Env.HOMEBREW_TAP_TOKEN }}false{{ else }}true{{ end }}'
-    commit_author:
-      name: pgrun-release
-      email: hello@pgrun.dev
-    commit_msg_template: "pgrun {{ .Tag }}"
-    directory: Formula
-    homepage: "https://pgrun.dev"
-    description: "Create, use, and delete disposable PGRun Postgres branches"
-    license: "MIT"
-    install: |
-      bin.install "pgrun"
-    test: |
-      system bin/"pgrun", "version"
+# Homebrew tap + npm publishing are DEFERRED for the v0.1.0 beta — the
+# supported install path is `curl -fsSL https://pgrun.dev/install | sh`, which
+# pulls the archives + checksums this release uploads. A brew formula
+# (pgrundev/homebrew-tap) and @pgrun/cli npm package can be re-added later;
+# they were dropped from this config because goreleaser deprecated the inline
+# `brews:` key in favor of `homebrew_casks:` and they blocked `goreleaser check`.
 
 # npm (@pgrun/cli) is NOT built by goreleaser itself — goreleaser has no npm
 # publisher. The pattern (mirroring pgbot): a release workflow runs this
