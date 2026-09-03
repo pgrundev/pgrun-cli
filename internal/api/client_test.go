@@ -334,3 +334,71 @@ func TestValidTTL(t *testing.T) {
 		}
 	}
 }
+
+// --- VerifyToken (auth login's building block) ---
+
+func TestVerifyToken_GoodToken_404OnBogusProject(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("Authorization header = %q", got)
+		}
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"project not found"}`))
+	})
+	if err := client.VerifyToken(context.Background()); err != nil {
+		t.Fatalf("VerifyToken: %v — a 404 on a bogus project must count as a valid token", err)
+	}
+}
+
+func TestVerifyToken_GoodToken_200(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"branches":[]}`))
+	})
+	if err := client.VerifyToken(context.Background()); err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+}
+
+func TestVerifyToken_BadToken_401(t *testing.T) {
+	client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid token"}`))
+	})
+	err := client.VerifyToken(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for a rejected token")
+	}
+	var authErr *AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected *AuthError, got %T: %v", err, err)
+	}
+}
+
+// --- WithDatabaseURL ---
+
+func TestWithDatabaseURL_AddsFieldPreservesOthers(t *testing.T) {
+	raw := []byte(`{"id":"b1","name":"feature-x","status":"ready","is_base":false,"connection_url":"postgres://u:p@host/feature-x"}`)
+	out := WithDatabaseURL(raw, "postgres://u:p@host/feature-x")
+
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Fatalf("output is not valid JSON: %v (%s)", err, out)
+	}
+	if decoded["database_url"] != "postgres://u:p@host/feature-x" {
+		t.Fatalf("database_url = %v", decoded["database_url"])
+	}
+	for _, field := range []string{"id", "name", "status", "connection_url"} {
+		if _, ok := decoded[field]; !ok {
+			t.Fatalf("output lost field %q: %s", field, out)
+		}
+	}
+}
+
+func TestWithDatabaseURL_MalformedRawFallsBackUnmodified(t *testing.T) {
+	raw := []byte(`not json`)
+	out := WithDatabaseURL(raw, "postgres://u:p@host/db")
+	if string(out) != string(raw) {
+		t.Fatalf("expected the malformed input back unmodified, got %s", out)
+	}
+}

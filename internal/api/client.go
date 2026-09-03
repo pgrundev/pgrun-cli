@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -211,6 +212,39 @@ func (c *Client) DeleteBranch(ctx context.Context, project, name string) (raw []
 		return raw, "", fmt.Errorf("decode response: %w", err)
 	}
 	return raw, resp.Status, nil
+}
+
+// verifyProject is an intentionally unlikely-to-exist project slug used
+// solely to validate a token — see VerifyToken.
+const verifyProject = "pgrun-cli-auth-login-verify"
+
+// VerifyToken makes one lightweight authenticated call to confirm the
+// client's token is accepted by the API, distinguishing a rejected token
+// (401, returned as an *AuthError) from every other outcome. The branches
+// endpoint checks auth before it resolves the project, so a 404 on a
+// deliberately bogus project slug still proves the token itself was fine —
+// that's the whole trick: it's a real endpoint, not a dedicated
+// "verify" one, but it cleanly separates "bad token" from "no such
+// project". Used by `pgrun auth login` before it saves a token.
+func (c *Client) VerifyToken(ctx context.Context) error {
+	_, _, err := c.ListBranches(ctx, verifyProject)
+	if err == nil {
+		return nil
+	}
+	var authErr *AuthError
+	if errors.As(err, &authErr) {
+		return err
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		// Any non-401 API response (404 project-not-found is the expected
+		// common case; a real 200 if an account happens to have a project by
+		// this name is fine too) means the request got past auth.
+		return nil
+	}
+	// Network/build/decode failure — never reached far enough to say either
+	// way, so this isn't a verified token, but it's also not a rejection.
+	return err
 }
 
 func branchesPath(project string) string {
