@@ -18,7 +18,7 @@ const (
 )
 
 // Version is overridden at release build time via
-// -ldflags "-X github.com/pgrundev/pgrun/internal/cli.Version=...".
+// -ldflags "-X github.com/pgrundev/pgrun-cli/internal/cli.Version=...".
 var Version = "dev"
 
 const usage = `pgrun — create, use, and delete disposable PGRun database branches

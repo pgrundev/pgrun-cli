@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pgrundev/pgrun/skills"
+	"github.com/pgrundev/pgrun-cli/skills"
 )
 
 // runSkill implements `pgrun skill ...` — installing the embedded

@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // branchEnv implements `pgrun branch env [<project>] <name>`: the

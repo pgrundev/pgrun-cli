@@ -17,7 +17,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X github.com/pgrundev/pgrun/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/pgrundev/pgrun-cli/internal/cli.Version={{.Version}}
 
 archives:
   - id: pgrun
@@ -86,7 +86,7 @@ brews:
 release:
   github:
     owner: pgrundev
-    name: pgrun
+    name: pgrun-cli
 
 changelog:
   sort: asc

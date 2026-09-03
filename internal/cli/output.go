@@ -5,7 +5,7 @@ import (
 	"io"
 	"text/tabwriter"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // writeBranchTable renders `branch list`'s human table. Never includes

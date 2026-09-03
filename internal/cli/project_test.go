@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgrundev/pgrun/internal/config"
+	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
 // chdir switches the process's working directory to dir for the duration of

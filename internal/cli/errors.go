@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // handleAPIError maps a client error to an exit code and a sanitized

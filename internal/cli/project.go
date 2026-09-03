@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/pgrundev/pgrun/internal/api"
-	"github.com/pgrundev/pgrun/internal/config"
+	"github.com/pgrundev/pgrun-cli/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
 // runProject implements both `pgrun project` and `pgrun projects` —

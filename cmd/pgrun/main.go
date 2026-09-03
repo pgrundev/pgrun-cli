@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/pgrundev/pgrun/internal/cli"
+	"github.com/pgrundev/pgrun-cli/internal/cli"
 )
 
 func main() {

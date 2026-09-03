@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 func runBranch(args []string, stdout, stderr io.Writer) int {

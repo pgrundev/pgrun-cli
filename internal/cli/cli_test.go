@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // run is the test harness: it drives cli.Run and returns exit code, stdout,

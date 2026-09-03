@@ -53,17 +53,22 @@ fails), and exits with the command's own exit code.
 
 ## Install
 
-Not yet published — build from source:
-
 ```sh
-git clone https://github.com/pgrundev/pgrun
-cd pgrun && go build -o pgrun ./cmd/pgrun
+curl -fsSL https://pgrun.dev/install | sh
 ```
 
-or `go install github.com/pgrundev/pgrun/cmd/pgrun@latest`.
+The installer downloads the matching release binary from
+[github.com/pgrundev/pgrun-cli](https://github.com/pgrundev/pgrun-cli) and
+verifies its SHA-256. Or install from source with
+`go install github.com/pgrundev/pgrun-cli/cmd/pgrun@latest`, or build directly:
 
-Once release scaffolding is wired up: `curl -fsSL https://pgrun.dev/cli/install | sh`,
-`brew install pgrundev/tap/pgrun`, or `npx @pgrun/cli`.
+```sh
+git clone https://github.com/pgrundev/pgrun-cli
+cd pgrun-cli && go build -o pgrun ./cmd/pgrun
+```
+
+(`brew install pgrundev/tap/pgrun` and `npx @pgrun/cli` are wired in goreleaser
+but gated behind tap/npm credentials — curl|sh is the supported beta path.)
 
 ## Auth
 

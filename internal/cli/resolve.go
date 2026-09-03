@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pgrundev/pgrun/internal/config"
+	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
 // resolveOrHint resolves config and confirms both URL and token are present

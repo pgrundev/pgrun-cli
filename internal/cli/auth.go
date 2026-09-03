@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/pgrundev/pgrun/internal/config"
+	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
 func runAuth(args []string, stdout, stderr io.Writer) int {

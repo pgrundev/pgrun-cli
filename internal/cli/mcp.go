@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/pgrundev/pgrun/internal/api"
-	"github.com/pgrundev/pgrun/internal/mcpserver"
+	"github.com/pgrundev/pgrun-cli/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/mcpserver"
 )
 
 // runMCP handles `pgrun mcp serve`. Unlike every other command, it reads

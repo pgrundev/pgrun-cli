@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgrundev/pgrun/skills"
+	"github.com/pgrundev/pgrun-cli/skills"
 )
 
 func TestSkillInstall_WritesToClaudeSkillsDirByDefault(t *testing.T) {

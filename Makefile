@@ -4,7 +4,7 @@ VERSION ?= dev
 .PHONY: build test vet fmt clean tidy install
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/pgrundev/pgrun/internal/cli.Version=$(VERSION)" -o bin/$(BINARY) ./cmd/pgrun
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/pgrundev/pgrun-cli/internal/cli.Version=$(VERSION)" -o bin/$(BINARY) ./cmd/pgrun
 
 test:
 	go test ./...

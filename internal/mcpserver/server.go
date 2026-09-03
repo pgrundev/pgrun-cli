@@ -17,7 +17,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 const protocolVersion = "2024-11-05"

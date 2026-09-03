@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgrundev/pgrun/internal/config"
+	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
 // newVerifyServer starts an httptest server and registers its cleanup —

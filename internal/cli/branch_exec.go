@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 const branchExecUsage = "usage: pgrun branch exec [<project>] <name> -- <command...>\n" +

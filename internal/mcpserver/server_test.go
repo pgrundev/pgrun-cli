@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgrundev/pgrun/internal/api"
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // session drives one Server.Serve over real in-memory pipes (io.Pipe), the
