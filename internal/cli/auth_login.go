@@ -164,23 +164,22 @@ func promptLine(br *bufio.Reader, out io.Writer, label, def string) (string, err
 func readToken(br *bufio.Reader, stdin io.Reader, stdout, stderr io.Writer, prompt string) (string, error) {
 	fmt.Fprint(stdout, prompt)
 
-	echoOff := false
 	if stdin == os.Stdin {
 		if err := setEcho(false); err == nil {
-			echoOff = true
+			// deferred so a panic in ReadString can never leave the user's
+			// terminal with echo disabled.
+			defer func() {
+				if restoreErr := setEcho(true); restoreErr != nil {
+					fmt.Fprintln(stderr, "warning: could not restore terminal echo — run `stty echo` if your terminal looks odd afterward")
+				}
+				fmt.Fprintln(stdout) // the newline from pressing Enter was never echoed
+			}()
 		} else {
 			fmt.Fprintln(stderr, "warning: could not disable terminal echo (is `stty` installed?) — the token will be visible as you type it")
 		}
 	}
 
 	line, err := br.ReadString('\n')
-
-	if echoOff {
-		if restoreErr := setEcho(true); restoreErr != nil {
-			fmt.Fprintln(stderr, "warning: could not restore terminal echo — run `stty echo` if your terminal looks odd afterward")
-		}
-		fmt.Fprintln(stdout) // the newline from pressing Enter was never echoed
-	}
 
 	if err != nil && err != io.EOF {
 		return "", err
