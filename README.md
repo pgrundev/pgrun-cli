@@ -15,7 +15,7 @@ moment you delete it or its TTL expires.
 ## Quickstart
 
 ```sh
-pgrun auth set --token <TOKEN> --url https://<your-pgrun-host>
+pgrun auth login    # interactive: prompts for URL + token, verifies, saves
 
 pgrun branch create myproject --name scratch --ttl 1h --wait
 # DATABASE_URL=postgres://... on stdout, only on ready (exit 0)
@@ -24,6 +24,18 @@ psql "$DATABASE_URL" -c 'select 1'
 
 pgrun branch delete myproject scratch
 ```
+
+Or, for the common "run one command against a fresh, disposable branch"
+case — the primitive an agent reaches for most — one line:
+
+```sh
+pgrun branch exec myproject --create scratch --ttl 1h --delete-after -- \
+  psql -c 'select 1'
+```
+
+Creates the branch, waits for it, runs the command with `DATABASE_URL` set
+in its environment, deletes the branch afterward (even if the command
+fails), and exits with the command's own exit code.
 
 ## Install
 
@@ -41,40 +53,55 @@ Once release scaffolding is wired up: `curl -fsSL https://pgrun.dev/cli/install 
 
 ## Auth
 
-Get a Bearer token from the dashboard's Tokens page (account-scoped), then
-either:
+`pgrun auth login` is the everyday path — an interactive prompt for the API
+URL (pre-filled from whatever's already configured, or pgrun's built-in
+default) and a token, read with terminal echo off and verified against the
+API before it's saved. It also prints the dashboard's Tokens page URL, so
+that's where the token itself comes from. `pgrun auth logout` clears the
+saved config. `pgrun auth status` prints the URL and a 6-character token
+fingerprint — never the token.
 
 ```sh
-pgrun auth set --token <TOKEN> [--url <URL>]
+pgrun auth login
 ```
 
-which writes `~/.config/pgrun/config.json` at mode `0600`, or set
-`PGRUN_API_URL`/`PGRUN_API_TOKEN` in the environment. Precedence (highest
-first): `--url`/`--token` flags on any command → env → the config file.
-`pgrun auth status` prints the URL and a 6-character token fingerprint —
-never the token.
+For scripts and CI, skip the prompt: `pgrun auth set --token <TOKEN>
+[--url <URL>]` writes `~/.config/pgrun/config.json` at mode `0600` directly
+(no prompt, no network call), or set `PGRUN_API_URL`/`PGRUN_API_TOKEN` in
+the environment. Precedence (highest first): `--url`/`--token` flags on any
+command → env → the config file.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pgrun branch create <project> --name <n> [--ttl 1h\|6h\|24h\|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]` | Create a branch. `--wait` polls every 2s until ready/failed/timeout; prints `DATABASE_URL=...` on ready. Without `--wait`, prints a status line and exits 0 immediately. |
+| `pgrun branch create <project> --name <n> [--ttl 1h\|6h\|24h\|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]` | Create a branch. `--wait` polls every 2s until ready/failed/timeout; prints `DATABASE_URL=...` on ready (`--json` adds a `database_url` field). Without `--wait`, prints a status line and exits 0 immediately. |
 | `pgrun branch list <project> [--json]` | Table: `NAME STATUS BASE PARENT VERSION CREATED EXPIRES`. Never shows a connection string. |
 | `pgrun branch get <project> <name> [--json]` (alias `status`) | One branch's status. Human mode never shows `connection_url`. |
 | `pgrun branch url <project> <name>` | `DATABASE_URL=...` if ready and credentialed (exit 0), else a sanitized reason (exit 1). |
+| `pgrun branch env <project> <name> [--format=json]` | `export DATABASE_URL="..."` (eval-able), or `{"database_url":"..."}` with `--format=json`. Same readiness rule as `branch url`. |
+| `pgrun branch exec <project> <name> -- <command...>` | Run `<command>` with `DATABASE_URL` set in its environment (never on argv, never in a file); exits with the command's own exit code. |
+| `pgrun branch exec <project> --create <newname> [--ttl ...] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>` | Create a fresh branch, wait for it, run the command, and (`--delete-after`) delete it afterward — even if the command fails. |
 | `pgrun branch delete <project> <name> [--json]` | `202` → deleting (exit 0); `409` on the base branch or a branch with children (exit 1). |
-| `pgrun auth set --token <t> [--url <u>]` | Write the config file. |
+| `pgrun auth login` | Interactive: prompt for URL + token, verify, save. |
+| `pgrun auth logout` | Remove the saved config. |
+| `pgrun auth set --token <t> [--url <u>]` | Advanced/CI: write the config file directly, no prompt. |
 | `pgrun auth status` | Print URL + token fingerprint. |
 | `pgrun mcp serve` | Run as an MCP server over stdio (see below). |
 | `pgrun version` | Print the version. |
 
 `--json` on `create`/`list`/`get`/`delete` prints the API's response bytes
 **verbatim** — that's the machine-readable contract, not the human text.
+(`branch create --wait --json`'s ready response is the one exception: it
+adds a `database_url` field on top of the raw body, so an agent scripting
+against `--json` never needs a second call just to learn the connection
+string.)
 
 ### Exit codes
 
-`0` success · `1` operation/API failure · `2` auth/config missing or
-rejected (with a `pgrun auth set` hint) · `64` usage (bad flags/args).
+`0` success (or, for `branch exec`, the exec'd command's own exit code) ·
+`1` operation/API failure · `2` auth/config missing or rejected (with a
+`pgrun auth login` hint) · `64` usage (bad flags/args).
 
 ## MCP — use pgrun as an agent tool
 
@@ -106,7 +133,8 @@ Tools, one per CLI branch subcommand:
 
 - `pgrun_create_branch{project,name,ttl?,parent?,wait?=true,timeout_seconds?=300}`
   — waits for ready/failed by default; result JSON includes
-  `connection_url` once ready.
+  `connection_url` and a `database_url` alias once ready, so one call is
+  enough to start using the branch.
 - `pgrun_list_branches{project}`
 - `pgrun_get_branch{project,name}`
 - `pgrun_delete_branch{project,name}`
