@@ -3,7 +3,9 @@ package api
 import "encoding/json"
 
 // WithDatabaseURL returns raw (a JSON object) with an added "database_url"
-// field set to databaseURL — an agent-ergonomics alias for connection_url.
+// field set to databaseURL — an agent-ergonomics alias for connection_url —
+// and "ready": true, since callers only reach for this once a branch is
+// ready and credentialed.
 // Added specifically for `branch create --wait` and the MCP
 // pgrun_create_branch tool so an agent gets id/name/status/database_url
 // back from one call, without needing to know the "connection_url" field
@@ -24,6 +26,10 @@ func WithDatabaseURL(raw []byte, databaseURL string) []byte {
 		return raw
 	}
 	obj["database_url"] = encoded
+	// A ready branch is the only time this is called, so say so explicitly:
+	// an agent scripting against --json checks one boolean instead of
+	// comparing status strings.
+	obj["ready"] = json.RawMessage("true")
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return raw

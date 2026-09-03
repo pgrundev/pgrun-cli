@@ -7,7 +7,7 @@ var toolDefinitions = []map[string]any{
 	{
 		"name": "pgrun_create_branch",
 		"description": "Create a disposable PGRun Postgres branch. By default waits until it is " +
-			"ready (or failed) before returning; the returned JSON includes connection_url and a database_url alias once ready. " +
+			"ready (or failed) before returning; the returned JSON includes connection_url, a database_url alias, and ready:true once ready. " +
 			"Branches are cheap and meant to be deleted when done — always set a ttl for CI/agent use.",
 		"inputSchema": map[string]any{
 			"type": "object",

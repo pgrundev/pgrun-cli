@@ -244,6 +244,9 @@ func TestCreateBranch_Wait(t *testing.T) {
 	if decoded["database_url"] != "postgres://u:p@host/feature-x" {
 		t.Fatalf("database_url = %v, want the connection_url value: %s", decoded["database_url"], text)
 	}
+	if decoded["ready"] != true {
+		t.Fatalf("ready = %v, want true: %s", decoded["ready"], text)
+	}
 	s.closeAndWait()
 }
 

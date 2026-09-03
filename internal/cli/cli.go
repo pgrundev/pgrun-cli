@@ -36,6 +36,9 @@ Usage:
   pgrun auth logout
   pgrun auth set --token <token> [--url <url>]    (advanced/CI — see PGRUN_API_TOKEN/PGRUN_API_URL below)
   pgrun auth status
+  pgrun skill install [--project | --dir <dir>]   (install the pgrun-branching skill for Claude Code; default ~/.claude/skills)
+  pgrun skill status [--project | --dir <dir>]
+  pgrun skill show
   pgrun mcp serve
   pgrun version
 
@@ -56,6 +59,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runBranch(args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr)
+	case "skill":
+		return runSkill(args[1:], stdout, stderr)
 	case "mcp":
 		return runMCP(args[1:], stdout, stderr)
 	case "version":

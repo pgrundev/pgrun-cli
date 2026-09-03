@@ -37,8 +37,14 @@ The intended day-one UX, once release scaffolding is live:
 ```sh
 brew install pgrundev/tap/pgrun
 pgrun auth login          # interactive: prompts for URL + token, verifies, saves
-claude                    # or any MCP host — pick up the pgrun-branching skill/tools from here
+pgrun skill install       # installs the pgrun-branching skill into ~/.claude/skills
+claude                    # "Add this migration and test it." — Claude branches, migrates, tests, cleans up
 ```
+
+`pgrun skill install` writes the skill embedded in the binary (this repo's
+`skills/pgrun-branching/SKILL.md`) to `~/.claude/skills/pgrun-branching/`;
+`--project` targets `./.claude/skills`, `--dir` any other skills root, and
+`pgrun skill status` exits 0 only when the installed copy matches.
 
 ## Auth
 

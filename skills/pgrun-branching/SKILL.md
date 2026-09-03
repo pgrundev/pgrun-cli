@@ -32,6 +32,8 @@ use that instead, it's faster. And regardless of which path got you here:
 
 ## The workflow
 
+0. **Decide the task actually needs a database** (see "When to use this").
+   If it doesn't, don't branch.
 1. **Check auth.** `pgrun auth status`. If it reports not configured (exit
    code 2), **tell the user to run `pgrun auth login` themselves** — it's an
    interactive prompt that reads their token with echo off and verifies it
@@ -90,7 +92,7 @@ These four are common starting points, not an exhaustive list:
 
 | Signal on disk | Framework | Command |
 |---|---|---|
-| `Gemfile` + `bin/rails` + `config/database.yml` | Rails | `DATABASE_URL="$DATABASE_URL" bin/rails db:migrate` (tests: `bin/rails test`). **Do not modify `config/database.yml`** — Rails reads `DATABASE_URL` from the environment automatically when it's set. |
+| `Gemfile` + `bin/rails` + `config/database.yml` | Rails | `DATABASE_URL="$DATABASE_URL" bin/rails db:migrate`, then the relevant tests against the **same** branch: `DATABASE_URL="$DATABASE_URL" bin/rails test`. **Do not modify `config/database.yml`** — Rails reads `DATABASE_URL` from the environment automatically when it's set. |
 | `manage.py` | Django | `DATABASE_URL="$DATABASE_URL" python manage.py migrate` |
 | `prisma/schema.prisma` | Prisma | `DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy` |
 | anything else | generic | `DATABASE_URL="$DATABASE_URL" <the project's normal migrate/test command>` |
@@ -128,6 +130,14 @@ Branch creation is async: `creating` → `snapshotting`/`provisioning`/`starting
 never in the list endpoint, never before ready. `--wait` (CLI) and
 `wait:true` (MCP, the default) handle this polling for you; if you're doing
 it by hand, poll every ~2s with a ~300s timeout.
+
+## Never
+
+- Modify `config/database.yml` (or any framework equivalent) to point at a branch.
+- Write branch credentials into `.env`, `.env.local`, or any file in the repo.
+- Commit, paste, or print a branch's `DATABASE_URL` anywhere public.
+- Run destructive work (migrations, `DROP`, load tests) against a production DSN.
+- Ask the user to paste a token into the chat — `pgrun auth login` exists for that.
 
 ## Cleanup rules
 

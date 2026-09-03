@@ -513,6 +513,11 @@ func TestBranchCreate_Wait_JSON_IncludesDatabaseURL(t *testing.T) {
 	if decoded["id"] != "b1" || decoded["name"] != "feature-x" || decoded["status"] != "ready" {
 		t.Fatalf("--json should still carry the original fields: %s", out)
 	}
+	// "ready": true rides along with database_url — one boolean an agent can
+	// check instead of comparing status strings.
+	if decoded["ready"] != true {
+		t.Fatalf("ready = %v, want true: %s", decoded["ready"], out)
+	}
 }
 
 func TestBranchList_Table(t *testing.T) {

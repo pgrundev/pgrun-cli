@@ -14,6 +14,20 @@ moment you delete it or its TTL expires.
 
 ## Quickstart
 
+The agent-first path — three commands, then hand the work to Claude Code:
+
+```sh
+pgrun auth login       # interactive: prompts for URL + token, verifies, saves
+pgrun skill install    # installs the pgrun-branching skill into ~/.claude/skills
+claude                 # then: "Add an index to users.email and test it on a pgrun branch"
+```
+
+The skill teaches Claude when to create a branch, how to inject its
+`DATABASE_URL` into only the commands that need it, and when to delete it.
+Claude does the branching; you never create a branch by hand.
+
+Prefer the CLI directly?
+
 ```sh
 pgrun auth login    # interactive: prompts for URL + token, verifies, saves
 
@@ -87,15 +101,23 @@ command → env → the config file.
 | `pgrun auth logout` | Remove the saved config. |
 | `pgrun auth set --token <t> [--url <u>]` | Advanced/CI: write the config file directly, no prompt. |
 | `pgrun auth status` | Print URL + token fingerprint. |
+| `pgrun skill install [--project \| --dir <dir>]` | Install the embedded `pgrun-branching` skill for Claude Code (`~/.claude/skills/pgrun-branching/SKILL.md` by default; `--project` → `./.claude/skills`; `--dir` → any other skills root). Idempotent; overwrites a stale copy. |
+| `pgrun skill status [--project \| --dir <dir>]` | Exit 0 only if the skill is installed and matches this binary's copy. |
+| `pgrun skill show` | Print the embedded skill to stdout. |
 | `pgrun mcp serve` | Run as an MCP server over stdio (see below). |
 | `pgrun version` | Print the version. |
 
 `--json` on `create`/`list`/`get`/`delete` prints the API's response bytes
 **verbatim** — that's the machine-readable contract, not the human text.
 (`branch create --wait --json`'s ready response is the one exception: it
-adds a `database_url` field on top of the raw body, so an agent scripting
-against `--json` never needs a second call just to learn the connection
-string.)
+adds `database_url` and `"ready": true` on top of the raw body, so an agent
+scripting against `--json` never needs a second call just to learn the
+connection string:
+
+```json
+{"id":"branch_123","name":"agent-add-users-index","status":"ready","database_url":"postgres://…","ready":true, …}
+```
+)
 
 ### Exit codes
 
@@ -133,8 +155,8 @@ Tools, one per CLI branch subcommand:
 
 - `pgrun_create_branch{project,name,ttl?,parent?,wait?=true,timeout_seconds?=300}`
   — waits for ready/failed by default; result JSON includes
-  `connection_url` and a `database_url` alias once ready, so one call is
-  enough to start using the branch.
+  `connection_url`, a `database_url` alias, and `"ready": true` once ready,
+  so one call is enough to start using the branch.
 - `pgrun_list_branches{project}`
 - `pgrun_get_branch{project,name}`
 - `pgrun_delete_branch{project,name}`
@@ -145,7 +167,9 @@ Results are `content:[{type:"text",text:<api-json>}]`; failures come back as
 **Pair it with the skill** — MCP/the CLI give an agent the *tools*, the
 [`pgrun-branching` skill](skills/pgrun-branching/SKILL.md) gives it the
 *playbook* (when to branch vs. use local Postgres, poll semantics, cleanup
-rules, what each error means). See [`AGENTS.md`](AGENTS.md) for the full
+rules, what each error means). `pgrun skill install` drops it into
+`~/.claude/skills` — the same file is embedded in the binary, so the
+installed copy always matches the commands this version understands. See [`AGENTS.md`](AGENTS.md) for the full
 agent-facing contract, including the safety rules around production DSNs.
 
 ## Development
