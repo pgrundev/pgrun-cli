@@ -113,6 +113,23 @@ type branchList struct {
 	Branches []Branch `json:"branches"`
 }
 
+// Project mirrors the JSON object the API returns for one project. Like
+// Branch, this is only used for human-readable formatting — --json output
+// always uses the raw bytes.
+type Project struct {
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	BaseBranch      string `json:"base_branch"` // may be null; decodes to ""
+	Branches        int    `json:"branches"`
+	PostgresVersion string `json:"postgres_version"`
+	Sanitized       bool   `json:"sanitized"`
+}
+
+// projectList is the GET .../projects envelope.
+type projectList struct {
+	Projects []Project `json:"projects"`
+}
+
 // deleteResponse is the 202 DELETE body.
 type deleteResponse struct {
 	Status string `json:"status"`
@@ -173,6 +190,21 @@ func (c *Client) ListBranches(ctx context.Context, project string) (raw []byte, 
 		return raw, nil, fmt.Errorf("decode response: %w", err)
 	}
 	return raw, list.Branches, nil
+}
+
+// ListProjects issues GET /api/v1/projects — no project scoping (this call
+// lists the projects a token can see, unlike every other Client method,
+// which is scoped to one already-known project).
+func (c *Client) ListProjects(ctx context.Context) (raw []byte, projects []Project, err error) {
+	raw, err = c.do(ctx, http.MethodGet, projectsPath(), nil, http.StatusOK)
+	if err != nil {
+		return raw, nil, err
+	}
+	var list projectList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return raw, nil, fmt.Errorf("decode response: %w", err)
+	}
+	return raw, list.Projects, nil
 }
 
 // GetBranch issues GET .../branches/<name>. connection_url is present only
@@ -245,6 +277,10 @@ func (c *Client) VerifyToken(ctx context.Context) error {
 	// Network/build/decode failure — never reached far enough to say either
 	// way, so this isn't a verified token, but it's also not a rejection.
 	return err
+}
+
+func projectsPath() string {
+	return "/api/v1/projects"
 }
 
 func branchesPath(project string) string {

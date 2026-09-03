@@ -24,14 +24,17 @@ var Version = "dev"
 const usage = `pgrun — create, use, and delete disposable PGRun database branches
 
 Usage:
-  pgrun branch create <project> --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]
-  pgrun branch list <project> [--json]
-  pgrun branch get <project> <name> [--json]      (alias: status)
-  pgrun branch url <project> <name>
-  pgrun branch env <project> <name> [--format=json]
-  pgrun branch exec <project> <name> -- <command...>
-  pgrun branch exec <project> --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>
-  pgrun branch delete <project> <name> [--json]
+  pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]
+  pgrun branch list [<project>] [--json]
+  pgrun branch get [<project>] <name> [--json]      (alias: status)
+  pgrun branch url [<project>] <name>
+  pgrun branch env [<project>] <name> [--format=json]
+  pgrun branch exec [<project>] <name> -- <command...>
+  pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>
+  pgrun branch delete [<project>] <name> [--json]
+  pgrun projects list [--json]                    (alias: pgrun project list, and bare "pgrun project"/"pgrun projects")
+  pgrun project use <slug> [--no-verify] [--url --token]
+  pgrun project show
   pgrun auth login
   pgrun auth logout
   pgrun auth set --token <token> [--url <url>]    (advanced/CI — see PGRUN_API_TOKEN/PGRUN_API_URL below)
@@ -44,6 +47,8 @@ Usage:
 
 Config resolution (highest wins): --url/--token flags > PGRUN_API_URL/PGRUN_API_TOKEN env > ~/.config/pgrun/config.json
 mcp serve reads config from PGRUN_API_URL/PGRUN_API_TOKEN env only (no flags, no config file).
+A branch command's [<project>] may be omitted once "pgrun project use <slug>" has written
+.pgrun/project in (or above) the current directory — every branch command falls back to it.
 `
 
 // Run parses args (excluding the program name), executes the command, and
@@ -57,6 +62,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "branch":
 		return runBranch(args[1:], stdout, stderr)
+	case "project", "projects":
+		return runProject(args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr)
 	case "skill":

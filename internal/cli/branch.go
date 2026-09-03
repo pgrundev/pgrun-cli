@@ -36,11 +36,18 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 }
 
 func branchCreate(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 1)
-	if err != nil {
-		return usageErrf(stderr, "branch create: %v — usage: pgrun branch create <project> --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) > 1 {
+		return usageErrf(stderr, "branch create: unexpected argument %q — usage: pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]", pos[1])
 	}
-	project := positional[0]
+	explicit := ""
+	if len(pos) == 1 {
+		explicit = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch create", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -137,11 +144,18 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 }
 
 func branchList(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 1)
-	if err != nil {
-		return usageErrf(stderr, "branch list: %v — usage: pgrun branch list <project> [--json]", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) > 1 {
+		return usageErrf(stderr, "branch list: unexpected argument %q — usage: pgrun branch list [<project>] [--json]", pos[1])
 	}
-	project := positional[0]
+	explicit := ""
+	if len(pos) == 1 {
+		explicit = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -173,11 +187,23 @@ func branchList(args []string, stdout, stderr io.Writer) int {
 }
 
 func branchGet(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 2)
-	if err != nil {
-		return usageErrf(stderr, "branch get: %v — usage: pgrun branch get <project> <name> [--json]", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) == 0 {
+		return usageErrf(stderr, "branch get: missing <name> — usage: pgrun branch get [<project>] <name> [--json]")
 	}
-	project, name := positional[0], positional[1]
+	if len(pos) > 2 {
+		return usageErrf(stderr, "branch get: unexpected argument %q — usage: pgrun branch get [<project>] <name> [--json]", pos[2])
+	}
+	var explicit, name string
+	if len(pos) == 2 {
+		explicit, name = pos[0], pos[1]
+	} else {
+		name = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch get", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -209,11 +235,23 @@ func branchGet(args []string, stdout, stderr io.Writer) int {
 }
 
 func branchURL(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 2)
-	if err != nil {
-		return usageErrf(stderr, "branch url: %v — usage: pgrun branch url <project> <name>", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) == 0 {
+		return usageErrf(stderr, "branch url: missing <name> — usage: pgrun branch url [<project>] <name>")
 	}
-	project, name := positional[0], positional[1]
+	if len(pos) > 2 {
+		return usageErrf(stderr, "branch url: unexpected argument %q — usage: pgrun branch url [<project>] <name>", pos[2])
+	}
+	var explicit, name string
+	if len(pos) == 2 {
+		explicit, name = pos[0], pos[1]
+	} else {
+		name = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch url", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -250,11 +288,23 @@ func branchURL(args []string, stdout, stderr io.Writer) int {
 }
 
 func branchDelete(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 2)
-	if err != nil {
-		return usageErrf(stderr, "branch delete: %v — usage: pgrun branch delete <project> <name> [--json]", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) == 0 {
+		return usageErrf(stderr, "branch delete: missing <name> — usage: pgrun branch delete [<project>] <name> [--json]")
 	}
-	project, name := positional[0], positional[1]
+	if len(pos) > 2 {
+		return usageErrf(stderr, "branch delete: unexpected argument %q — usage: pgrun branch delete [<project>] <name> [--json]", pos[2])
+	}
+	var explicit, name string
+	if len(pos) == 2 {
+		explicit, name = pos[0], pos[1]
+	} else {
+		name = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch delete", flag.ContinueOnError)
 	fs.SetOutput(stderr)

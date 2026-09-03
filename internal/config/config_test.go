@@ -159,6 +159,78 @@ func TestFingerprint(t *testing.T) {
 	}
 }
 
+// --- FindProject / SaveProject (.pgrun/project) ---
+
+func TestSaveProjectFindProjectRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path, err := SaveProject(dir, "jobsgpt")
+	if err != nil {
+		t.Fatalf("SaveProject: %v", err)
+	}
+	wantPath := filepath.Join(dir, ProjectFileDir, "project")
+	if path != wantPath {
+		t.Fatalf("path = %q, want %q", path, wantPath)
+	}
+	slug, gotPath, err := FindProject(dir)
+	if err != nil {
+		t.Fatalf("FindProject: %v", err)
+	}
+	if slug != "jobsgpt" || gotPath != wantPath {
+		t.Fatalf("FindProject = (%q, %q), want (%q, %q)", slug, gotPath, "jobsgpt", wantPath)
+	}
+}
+
+func TestFindProjectWalksUpFromNestedSubdir(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := SaveProject(dir, "jobsgpt"); err != nil {
+		t.Fatalf("SaveProject: %v", err)
+	}
+	nested := filepath.Join(dir, "a", "b", "c")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	slug, path, err := FindProject(nested)
+	if err != nil {
+		t.Fatalf("FindProject: %v", err)
+	}
+	if slug != "jobsgpt" {
+		t.Fatalf("slug = %q, want jobsgpt", slug)
+	}
+	if want := filepath.Join(dir, ProjectFileDir, "project"); path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+func TestFindProjectAbsentReturnsZeroValues(t *testing.T) {
+	dir := t.TempDir()
+	slug, path, err := FindProject(dir)
+	if err != nil {
+		t.Fatalf("FindProject: %v", err)
+	}
+	if slug != "" || path != "" {
+		t.Fatalf("FindProject = (%q, %q), want (\"\", \"\")", slug, path)
+	}
+}
+
+func TestFindProjectIgnoresCommentAndBlankFirstLines(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, ProjectFileDir)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	content := "\n# a comment\n  jobsgpt  \n"
+	if err := os.WriteFile(filepath.Join(projectDir, "project"), []byte(content), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	slug, _, err := FindProject(dir)
+	if err != nil {
+		t.Fatalf("FindProject: %v", err)
+	}
+	if slug != "jobsgpt" {
+		t.Fatalf("slug = %q, want jobsgpt (blank/comment lines and surrounding whitespace should be skipped/trimmed)", slug)
+	}
+}
+
 func TestFingerprintNeverContainsFullLongToken(t *testing.T) {
 	token := "pgrunfaketoken_abcdefghijklmnopqrstuvwxyz0123456789"
 	fp := Fingerprint(token)

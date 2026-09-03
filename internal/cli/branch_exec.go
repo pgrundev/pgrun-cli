@@ -8,14 +8,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/pgrundev/pgrun/internal/api"
 )
 
-const branchExecUsage = "usage: pgrun branch exec <project> <name> -- <command...>\n" +
-	"   or: pgrun branch exec <project> --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>"
+const branchExecUsage = "usage: pgrun branch exec [<project>] <name> -- <command...>\n" +
+	"   or: pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>"
 
 // branchExec implements `pgrun branch exec`: the headline agent primitive.
 // It resolves a branch's DATABASE_URL, runs a command with it set in the
@@ -25,23 +24,17 @@ const branchExecUsage = "usage: pgrun branch exec <project> <name> -- <command..
 // with --delete-after it deletes that branch afterward — even if the
 // command itself failed.
 //
-// Positional shape: <project> is always first. Exactly one of a second
-// positional <name> (use an existing ready branch) or --create <newname>
-// (make a new one) selects the branch — never both, never neither.
-// Everything after a literal "--" is the command to run (flag.FlagSet
-// treats "--" as its own terminator, so this falls out of fs.Parse for
-// free once the leading positionals are peeled off by hand).
+// Positional shape: an optional <project> (falling back to .pgrun/project,
+// see resolveProject) may lead. Exactly one of a following <name> (use an
+// existing ready branch) or --create <newname> (make a new one) selects the
+// branch — never both, never neither. Everything after a literal "--" is
+// the command to run (flag.FlagSet treats "--" as its own terminator, so
+// this falls out of fs.Parse for free once the leading positionals are
+// peeled off by hand).
 func branchExec(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return usageErrf(stderr, "branch exec: missing <project> — "+branchExecUsage)
-	}
-	project := args[0]
-	rest := args[1:]
-
-	var name string
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
-		name = rest[0]
-		rest = rest[1:]
+	pos, rest := leadingPositionals(args)
+	if len(pos) > 2 {
+		return usageErrf(stderr, "branch exec: unexpected argument %q — "+branchExecUsage, pos[2])
 	}
 
 	fs := flag.NewFlagSet("branch exec", flag.ContinueOnError)
@@ -57,12 +50,42 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 	}
 	command := fs.Args()
 
-	if *create != "" && name != "" {
-		return usageErrf(stderr, "branch exec: cannot combine <name> (%q) with --create %q — "+branchExecUsage, name, *create)
-	}
-	if *create == "" && name == "" {
+	// Resolve <project>/<name> from the leading positionals now that
+	// --create is known: with --create, a lone positional is the project
+	// (falling back to .pgrun/project when absent) and a second one is the
+	// existing "cannot combine <name> with --create" error; without it, the
+	// familiar two-positional <project> <name> (or one-positional <name>,
+	// project from the fallback) pattern applies.
+	var project, name string
+	switch {
+	case *create != "":
+		if len(pos) == 2 {
+			return usageErrf(stderr, "branch exec: cannot combine <name> (%q) with --create %q — "+branchExecUsage, pos[1], *create)
+		}
+		explicit := ""
+		if len(pos) == 1 {
+			explicit = pos[0]
+		}
+		var code int
+		var ok bool
+		project, code, ok = resolveProject(explicit, stderr)
+		if !ok {
+			return code
+		}
+	case len(pos) == 2:
+		project, name = pos[0], pos[1]
+	case len(pos) == 1:
+		name = pos[0]
+		var code int
+		var ok bool
+		project, code, ok = resolveProject("", stderr)
+		if !ok {
+			return code
+		}
+	default: // len(pos) == 0, no --create
 		return usageErrf(stderr, "branch exec: either <name> or --create <newname> is required — "+branchExecUsage)
 	}
+
 	if *create == "" && (*ttl != "" || *from != "" || *deleteAfter) {
 		return usageErrf(stderr, "branch exec: --ttl/--from/--delete-after require --create")
 	}

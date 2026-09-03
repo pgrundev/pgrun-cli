@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is both the file format and the resolved result.
@@ -90,6 +91,63 @@ func Resolve(flagURL, flagToken string) (Config, error) {
 		cfg.Token = flagToken
 	}
 	return cfg, nil
+}
+
+// ProjectFileDir is the repo-local directory holding the selected project
+// slug: <repo>/.pgrun/project. Not a secret (unlike the token config file
+// above) — never put a token in it.
+const ProjectFileDir = ".pgrun"
+
+// projectFileName is the file within ProjectFileDir that holds the slug.
+const projectFileName = "project"
+
+// FindProject walks up from startDir — the same way git locates .git —
+// looking for a .pgrun/project file. It returns the slug taken from the
+// file's first non-empty line that doesn't start with "#" (trimmed of
+// surrounding whitespace), along with the file's path. Absence is not an
+// error: reaching the filesystem root without finding one returns
+// ("", "", nil), and the same applies if a file is found but has no
+// slug-shaped line in it. A non-nil error only means a read actually
+// failed (permissions, etc.).
+func FindProject(startDir string) (slug, path string, err error) {
+	dir := startDir
+	for {
+		candidate := filepath.Join(dir, ProjectFileDir, projectFileName)
+		data, readErr := os.ReadFile(candidate)
+		switch {
+		case readErr == nil:
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				return line, candidate, nil
+			}
+			return "", "", nil
+		case !os.IsNotExist(readErr):
+			return "", "", fmt.Errorf("reading %s: %w", candidate, readErr)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", "", nil
+		}
+		dir = parent
+	}
+}
+
+// SaveProject writes slug to dir/.pgrun/project, creating the directory as
+// needed and overwriting any existing file. Mode 0644, not 0600 — this file
+// is not a secret. Returns the path written.
+func SaveProject(dir, slug string) (path string, err error) {
+	projectDir := filepath.Join(dir, ProjectFileDir)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", projectDir, err)
+	}
+	path = filepath.Join(projectDir, projectFileName)
+	if err := os.WriteFile(path, []byte(slug+"\n"), 0o644); err != nil {
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+	return path, nil
 }
 
 // Fingerprint is the safe-to-display stand-in for a token: its first 6

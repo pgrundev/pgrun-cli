@@ -11,18 +11,30 @@ import (
 	"github.com/pgrundev/pgrun/internal/api"
 )
 
-// branchEnv implements `pgrun branch env <project> <name>`: the
+// branchEnv implements `pgrun branch env [<project>] <name>`: the
 // credential-injection helper for shells, printing an eval-able
 // `export DATABASE_URL="..."` line (or `--format=json`'s `{"database_url":
 // "..."}`). Only ever succeeds once the branch is ready and credentialed —
 // same reveal class as `branch url`, just shaped for `eval "$(...)"`
 // instead of parsing `DATABASE_URL=...` text.
 func branchEnv(args []string, stdout, stderr io.Writer) int {
-	positional, rest, err := splitPositional(args, 2)
-	if err != nil {
-		return usageErrf(stderr, "branch env: %v — usage: pgrun branch env <project> <name> [--format=json]", err)
+	pos, rest := leadingPositionals(args)
+	if len(pos) == 0 {
+		return usageErrf(stderr, "branch env: missing <name> — usage: pgrun branch env [<project>] <name> [--format=json]")
 	}
-	project, name := positional[0], positional[1]
+	if len(pos) > 2 {
+		return usageErrf(stderr, "branch env: unexpected argument %q — usage: pgrun branch env [<project>] <name> [--format=json]", pos[2])
+	}
+	var explicit, name string
+	if len(pos) == 2 {
+		explicit, name = pos[0], pos[1]
+	} else {
+		name = pos[0]
+	}
+	project, code, ok := resolveProject(explicit, stderr)
+	if !ok {
+		return code
+	}
 
 	fs := flag.NewFlagSet("branch env", flag.ContinueOnError)
 	fs.SetOutput(stderr)
