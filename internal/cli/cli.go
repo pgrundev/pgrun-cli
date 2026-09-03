@@ -28,8 +28,13 @@ Usage:
   pgrun branch list <project> [--json]
   pgrun branch get <project> <name> [--json]      (alias: status)
   pgrun branch url <project> <name>
+  pgrun branch env <project> <name> [--format=json]
+  pgrun branch exec <project> <name> -- <command...>
+  pgrun branch exec <project> --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>
   pgrun branch delete <project> <name> [--json]
-  pgrun auth set --token <token> [--url <url>]
+  pgrun auth login
+  pgrun auth logout
+  pgrun auth set --token <token> [--url <url>]    (advanced/CI — see PGRUN_API_TOKEN/PGRUN_API_URL below)
   pgrun auth status
   pgrun mcp serve
   pgrun version
@@ -74,5 +79,8 @@ func usageErrf(stderr io.Writer, format string, a ...any) int {
 }
 
 // authHint is appended whenever a command fails for lack of (or rejection
-// of) credentials, exit code 2.
-const authHint = "run `pgrun auth set --token <TOKEN> [--url <URL>]`"
+// of) credentials, exit code 2. Leads with `auth login` — the everyday
+// interactive path — but keeps mentioning `auth set` by name (scripts and
+// existing docs point at that exact phrase; it's also the one CI should
+// actually use, since it never touches a terminal).
+const authHint = "run `pgrun auth login` (or `pgrun auth set --token <TOKEN> [--url <URL>]` for CI/scripts)"

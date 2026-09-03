@@ -13,7 +13,7 @@ import (
 
 func runBranch(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usageErrf(stderr, "branch: expected a subcommand (create, list, get, url, delete)")
+		return usageErrf(stderr, "branch: expected a subcommand (create, list, get, url, env, exec, delete)")
 	}
 	switch args[0] {
 	case "create":
@@ -24,6 +24,10 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 		return branchGet(args[1:], stdout, stderr)
 	case "url":
 		return branchURL(args[1:], stdout, stderr)
+	case "env":
+		return branchEnv(args[1:], stdout, stderr)
+	case "exec":
+		return branchExec(args[1:], stdout, stderr)
 	case "delete":
 		return branchDelete(args[1:], stdout, stderr)
 	default:
