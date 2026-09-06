@@ -70,6 +70,7 @@ All under `Authorization: Bearer <token>`, JSON in and out, 401 `{"error"}` on a
 5. **`--set` accepts `copy|fake|null|remove`** (`remove` is an alias the CLI maps to `null` — the UI's word) and prints dispositions as `COPY` / `FAKE` / `REMOVE`.
 6. **Hidden prompt when `--url` is omitted** (`readToken`'s echo-off convention), refused with a usage error when combined with `--json` (a prompt would corrupt the JSON stream). The URL must start with `postgres://` or `postgresql://` — checked client-side, and the usage error never repeats the value.
 7. **No MCP tools for sources in this slice** (deferred; the MCP server is unchanged). No release tag (operator-gated).
+8. **`--url` collision (found in Task 3):** on `add`/`update` `--url` is the connection URL and the API-base override is `--api-url`; a URL-shaped positional/`--name` is refused with a value-free usage error. Cost if wrong: a script passing an `https://` API URL as `--url` fails the scheme check (safe).
 
 ---
 
@@ -428,6 +429,7 @@ Content:
 - AGENTS.md: a `## Sources (Safe Copy setup)` section with the same flow, the exit codes per command, the status vocabulary, and safety rules 8–9: *never paste a production connection URL into a chat or task transcript — have the human run `pgrun source add --name <n>` and type it at the hidden prompt*; *never pass `--approve` on a policy you have not shown the human (`pgrun source protect <n>` prints the review table — approval is the human's decision)*.
 - SKILL.md: a short "Before the first branch" subsection: if `pgrun branch create` returns 404/`no Safe Copy` or `pgrun source status <project>` is not `Safe Copy ready`, stop and tell the human to complete `pgrun source status` → `protect` → `copy --wait` themselves (data-protection decisions are theirs, and the URL must not pass through the agent).
 - Keep vocabulary: Production Database, Protect Data / data protection, Safe Copy, Branch.
+- Ruling 8 (Task 3): on `source add`/`source update` the `--url` flag IS the connection URL, so the API-base override on those two commands is spelled `--api-url` (`--token` unchanged; every other command keeps `--url`). Document this exception next to the config-resolution sentence in README/AGENTS.md and in `usage`. Also document the accepted residual: assigning the URL to a boolean flag (`--wait=postgres://…`) makes Go's flag package echo the invalid value — never do that; the documented flows never hit it.
 
 - [ ] **Step 1: Failing test** for the usage text, run it, see it fail (if Task 2 already made it pass, keep the test anyway).
 - [ ] **Step 2: Write the docs.**
