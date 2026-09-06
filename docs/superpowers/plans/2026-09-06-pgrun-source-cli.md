@@ -70,6 +70,7 @@ All under `Authorization: Bearer <token>`, JSON in and out, 401 `{"error"}` on a
 5. **`--set` accepts `copy|fake|null|remove`** (`remove` is an alias the CLI maps to `null` — the UI's word) and prints dispositions as `COPY` / `FAKE` / `REMOVE`.
 6. **Hidden prompt when `--url` is omitted** (`readToken`'s echo-off convention), refused with a usage error when combined with `--json` (a prompt would corrupt the JSON stream). The URL must start with `postgres://` or `postgresql://` — checked client-side, and the usage error never repeats the value.
 7. **No MCP tools for sources in this slice** (deferred; the MCP server is unchanged). No release tag (operator-gated).
+9. **`--api-url` everywhere under `source` (found in Task 4 review):** every `source` subcommand takes `--api-url`/`--token` via `addSourceAuthFlags` (defined in `source.go`); `--url` is defined only on `add`/`update` as the connection URL, so a credentialed URL can never reach the API-base path (a transport error would echo it). Go's flag package reports an undefined flag by name only. Task 5's `copy` uses `addSourceAuthFlags`; Task 6 documents the rule. Also: a repeated `--set` key is a usage error.
 8. **`--url` collision (found in Task 3):** on `add`/`update` `--url` is the connection URL and the API-base override is `--api-url`; a URL-shaped positional/`--name` is refused with a value-free usage error. Cost if wrong: a script passing an `https://` API URL as `--url` fails the scheme check (safe).
 
 ---
@@ -399,7 +400,7 @@ then a tabwriter table `COLUMN\tDISPOSITION\tSOURCE` with one row per `Rules` en
 
 **Interfaces:** consumes Task 1 (`GetSource`, `CopySource`, `WaitForSource`, `CopySettled`) and Task 2.
 
-Flags: `--wait`, `--timeout 30m`, `--json`, auth flags. Flow:
+Flags: `--wait`, `--timeout 30m`, `--json`, and `addSourceAuthFlags` (ruling 9: `--api-url`/`--token`, never `--url`). Flow:
 1. `GetSource`. Pre-flight by status (messages to stderr, no POST):
    - `action_required`: `pgrun: Safe Copy cannot be created.` / `` / `Production schema changed after the protection policy was approved.` / `` / `Review changes:` / `  pgrun source protect <name>` — exit 1.
    - `ready`: `pgrun: <name> already has a Safe Copy` — exit 1.
