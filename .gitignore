@@ -4,3 +4,7 @@
 
 # npm packaging build output (assembled by npm/build.mjs)
 npm/staging/
+
+# harness worktrees + SDD scratch
+.claude/worktrees/
+.superpowers/
