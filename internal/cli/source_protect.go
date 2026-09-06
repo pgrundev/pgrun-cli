@@ -102,7 +102,7 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 			// A repeated --set is almost certainly a mistake (which decision
 			// did the caller actually mean?) — refused before any request
 			// rather than silently letting the last one win.
-			return usageErrf(stderr, "source protect: --set names %s twice", key)
+			return usageErrf(stderr, "source protect: --set names %s twice", redactedArg(key))
 		}
 		decisions[key] = disposition
 	}

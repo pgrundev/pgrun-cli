@@ -568,6 +568,7 @@ func TestSourceUsageErrors_NeverEchoAURL(t *testing.T) {
 		{"protect trailing positional", []string{"source", "protect", "acme", "--json", testConnURL}},
 		{"protect malformed --set", []string{"source", "protect", "acme", "--set", "public.users.email=" + testConnURL}},
 		{"copy trailing positional", []string{"source", "copy", "acme", "--json", testConnURL}},
+		{"protect duplicate --set key", []string{"source", "protect", "acme", "--set", testConnURL + "=copy", "--set", testConnURL + "=null"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.what, func(t *testing.T) {
@@ -605,5 +606,22 @@ func TestDispositionLabel(t *testing.T) {
 		if got := dispositionLabel(in); got != want {
 			t.Errorf("dispositionLabel(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The top-level dispatcher is the first thing a user typing a URL by mistake
+// can hit. Its usage text deliberately contains the "<postgres://…>"
+// placeholder, so this case asserts the secret is absent and the argument is
+// reported by shape, rather than banning the scheme string outright.
+func TestUnknownCommand_NeverEchoesAURL(t *testing.T) {
+	isolateHome(t)
+	code, out, stderr := run(t, testConnURL)
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	assertNoLeak(t, "stdout", out)
+	assertNoLeak(t, "stderr", stderr)
+	if !strings.Contains(stderr, `unknown command "[redacted]"`) {
+		t.Fatalf("stderr = %q", stderr)
 	}
 }

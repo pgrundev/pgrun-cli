@@ -161,3 +161,16 @@ func TestRedactWriter(t *testing.T) {
 		t.Fatalf("underlying writer = %q, want a [redacted] marker", buf.String())
 	}
 }
+
+// A long generated numeric password is not a JSON-token collision risk and
+// must still be scrubbed standalone; the digit rule only exempts short ones.
+func TestRedactor_LongNumericPasswordRedactedStandalone(t *testing.T) {
+	r := newRedactor("postgres://u:1234567890123456@h/db")
+	if got := r.Replace("error 1234567890123456 seen"); strings.Contains(got, "1234567890123456") {
+		t.Fatalf("16-digit password not redacted standalone: %q", got)
+	}
+	short := newRedactor("postgres://u:12345@h/db")
+	if got := short.Replace(`{"n":12345}`); got != `{"n":12345}` {
+		t.Fatalf("short numeric password mangled an unrelated body: %q", got)
+	}
+}

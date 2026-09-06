@@ -627,7 +627,7 @@ func TestSourceProtect_DuplicateSetKeyIsUsage(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("code = %d, want %d (stderr=%q)", code, exitUsage, stderr)
 	}
-	if !strings.Contains(stderr, "--set names public.users.bio twice") {
+	if !strings.Contains(stderr, `--set names "public.users.bio" twice`) {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }

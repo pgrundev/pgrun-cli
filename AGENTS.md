@@ -144,7 +144,7 @@ pgrun branch create production --name dev --wait
 source is `failed`, `action_required`, or its last connection check failed;
 0 otherwise. `add`/`update`: without `--wait`, 0 (the check runs
 asynchronously); with `--wait`, 0 once connected, 1 on a failed check or on
-timeout. `protect`: 1 while any column is unresolved, 1 (no request sent)
+timeout. `protect`: 1 while any column is unresolved, 1 (only the status read, no protect request)
 when the source is not connected yet, and 1 if an `--approve` comes back
 without an active policy; 0 once the review is complete or the policy is
 activated. `pgrun source protect <n> --review` **always exits 0** — asking

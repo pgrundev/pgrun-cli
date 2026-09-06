@@ -91,7 +91,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return exitSuccess
 	default:
-		fmt.Fprintf(stderr, "pgrun: unknown command %q\n\n", args[0])
+		fmt.Fprintf(stderr, "pgrun: unknown command %s\n\n", redactedArg(args[0]))
 		fmt.Fprint(stderr, usage)
 		return exitUsage
 	}

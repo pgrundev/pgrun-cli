@@ -48,7 +48,9 @@ func jsonTokenPassword(pw string) bool {
 	case "true", "false", "null":
 		return true
 	}
-	if pw == "" {
+	// Short all-digit passwords collide with numbers in a JSON body; a long
+	// generated numeric one is worth scrubbing standalone.
+	if pw == "" || len(pw) > 8 {
 		return false
 	}
 	for _, r := range pw {
@@ -108,11 +110,13 @@ func redactWriter(w io.Writer, r *strings.Replacer) io.Writer { return redacting
 // errors are printed before any redactor exists (there is no accepted URL
 // yet), and the argument a user is most likely to get wrong here is a bare
 // connection URL typed where a name, a subcommand or a disposition belongs —
-// so a value shaped like one is reported by shape, never by value. EVERY
-// usage message in this package that would otherwise print an argument with
-// %q goes through this function; a format string that echoes user input is
-// a print site for a secret whether or not its author was thinking about
-// one.
+// so a value shaped like one is reported by shape, never by value. Every
+// usage message of the source commands (and the top-level unknown-command
+// error, the first thing a user typing a URL by mistake can hit) that would
+// otherwise print an argument with %q goes through this function; a format
+// string that echoes user input is a print site for a secret whether or not
+// its author was thinking about one. The other command families still use
+// %q — they never take a connection URL.
 //
 // It asks containsConnectionURL, not validConnectionURL: a refusal that
 // failed open on "POSTGRES://…" — or on a URL embedded in a longer argument
