@@ -35,9 +35,12 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return sourceGet(rest, stdout, stderr)
 	case "status":
 		return sourceStatus(rest, stdout, stderr)
-	case "add", "update", "protect", "copy":
-		// Tasks 3-5 replace these with real implementations.
-		_ = stdin
+	case "add":
+		return sourceAdd(rest, stdin, stdout, stderr)
+	case "update":
+		return sourceUpdate(rest, stdin, stdout, stderr)
+	case "protect", "copy":
+		// Tasks 4-5 replace these with real implementations.
 		return usageErrf(stderr, "source %s: not implemented yet", sub)
 	default:
 		return usageErrf(stderr, "source: unknown subcommand %q", sub)
@@ -74,11 +77,22 @@ func sourceUsageFlags(cmd string) string {
 func sourceNameArgs(cmd string, args []string, stderr io.Writer) (name string, rest []string, code int, ok bool) {
 	pos, rest := leadingPositionals(args)
 	if len(pos) > 1 {
-		return "", nil, usageErrf(stderr, "source %s: unexpected argument %q — usage: pgrun source %s [<name>] %s", cmd, pos[1], cmd, sourceUsageFlags(cmd)), false
+		// redactedArg, not %q: `pgrun source update <name> <url>` (the URL
+		// typed without --url) reaches here, and echoing it back would leak
+		// the password before any redactor exists — see redact.go.
+		return "", nil, usageErrf(stderr, "source %s: unexpected argument %s — usage: pgrun source %s [<name>] %s", cmd, redactedArg(pos[1]), cmd, sourceUsageFlags(cmd)), false
 	}
 	explicit := ""
 	if len(pos) == 1 {
 		explicit = pos[0]
+	}
+	// A connection URL where the name goes (`pgrun source update
+	// postgres://…`) is a plausible slip, and an expensive one: the name
+	// becomes a URL path segment, so the secret would be sent to — and
+	// logged by — the API, then echoed back in the 404. Refused here,
+	// before any request, without repeating the value.
+	if validConnectionURL(explicit) {
+		return "", nil, usageErrf(stderr, "source %s: that argument is the Production Database name, not a connection URL — usage: pgrun source %s [<name>] %s", cmd, cmd, sourceUsageFlags(cmd)), false
 	}
 	name, code, ok = resolveProject(explicit, stderr)
 	if !ok {

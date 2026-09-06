@@ -529,7 +529,9 @@ func TestSourceStatus_404ExitsFailureWithMessage(t *testing.T) {
 
 func TestSourcePlaceholders_NotImplemented(t *testing.T) {
 	isolateHome(t)
-	for _, sub := range []string{"add", "update", "protect", "copy"} {
+	// add/update are implemented in source_connect.go (see
+	// source_connect_test.go); protect/copy are still Tasks 4-5.
+	for _, sub := range []string{"protect", "copy"} {
 		code, _, stderr := run(t, "source", sub)
 		if code != exitUsage {
 			t.Errorf("source %s: code = %d, want %d", sub, code, exitUsage)
