@@ -115,6 +115,64 @@ A connection string is printed/exported in exactly three places:
 environment without ever printing it. Nowhere else — `branch get`/`branch
 list` never show a connection string in human mode, by design.
 
+## Sources (Safe Copy setup)
+
+Before an agent can branch off real production-shaped data, a human
+connects the Production Database once — Connect Postgres → Protect Data →
+Safe Copy. Sources *are* projects: `[<name>]` on every command below is the
+Production Database name, exactly like a branch command's `[<project>]`,
+and falls back to `.pgrun/project` the same way.
+
+```sh
+pgrun auth login
+pgrun project use production
+
+pgrun source add --name production --url "$DATABASE_URL"   # or the hidden prompt — see rule 8 below
+pgrun source status production
+
+pgrun source protect production                              # review only, never activates
+pgrun source protect production --set public.users.email=fake --approve
+
+pgrun source copy production --wait
+pgrun branch create production --name dev --wait
+```
+
+**Exit codes.** `list`/`get`: 0 on any successful read. `status`: 1 when the
+source is `failed`, `action_required`, or its last connection check failed;
+0 otherwise. `add`/`update`: without `--wait`, 0 (the check runs
+asynchronously); with `--wait`, 0 once connected, 1 on a failed check or on
+timeout. `protect`: 1 while any column is unresolved, 0 once the review is
+complete or the policy is activated. `copy`: 1 on drift/refusal/failure (or,
+with `--wait`, a Safe Copy that lands `failed`); 0 once accepted, or `ready`
+with `--wait`.
+
+**Status vocabulary** (`safe_copy_status`): `connect` (no URL yet) →
+`checking` (connection check running, or holding a failed check —
+`last_check_error` is set) → `protect` (schema analyzed, policy not active)
+→ `ready_to_copy` (policy active, no Safe Copy yet) → `copying` → `ready`.
+`action_required` means production's schema changed since the policy was
+approved — review `protect` again; `failed` means the Safe Copy itself
+failed to create, a support case (support@postgresrun.com). `sync` always
+reads `snapshot_only`: a Safe Copy is a one-time copy in this release, not
+a continuous sync.
+
+The API-base override on **every** source subcommand — including
+`add`/`update` — is `--api-url`, not `--url` (`--token` unchanged): on
+`add`/`update`, `--url` is already the production connection URL.
+
+**Safety rules for sources** — extending the safety contract below (rules
+1–7, about branches) with two rules 8–9, about sources:
+
+8. **Never paste a production connection URL into a chat or task
+   transcript.** Have the human run `pgrun source add --name <n>` (or
+   `pgrun source update <n>`) themselves and type the URL at the hidden
+   `Connection URL (input hidden):` prompt — it must never pass through you.
+9. **Never pass `--approve` on a policy you have not shown the human.**
+   `pgrun source protect <n>` prints the review table without activating
+   anything; show the human that table (or its `--json` equivalent) and let
+   them decide. What gets copied, faked, or dropped from their production
+   database is their call, never the agent's.
+
 ## MCP examples
 
 `pgrun mcp serve` runs the same binary as an MCP server over stdio
@@ -134,7 +192,8 @@ subprocess and passes credentials through its own env:
 }
 ```
 
-Four tools, one per CLI branch subcommand:
+Four tools, one per CLI branch subcommand (no `source` tools yet — Safe
+Copy setup above is CLI-only):
 
 - `pgrun_create_branch{project,name,ttl?,parent?,wait?=true,timeout_seconds?=300}`
   — waits for ready/failed by default; the result JSON includes

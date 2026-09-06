@@ -51,6 +51,32 @@ Creates the branch, waits for it, runs the command with `DATABASE_URL` set
 in its environment, deletes the branch afterward (even if the command
 fails), and exits with the command's own exit code.
 
+### First time? Connect your production database
+
+Branches above fork whatever base a project already has. To branch off a
+privacy-safe copy of your *real* production database instead, connect it
+once — Connect Postgres → Protect Data → Safe Copy — then branch as usual:
+
+```sh
+pgrun auth login
+pgrun project use production                                # alias: pgrun projects use
+
+pgrun source add --name production --url "$DATABASE_URL"    # omit --url for a hidden prompt
+pgrun source status production                               # poll until connected
+
+pgrun source protect production                              # prints the review table, decides nothing
+pgrun source protect production --set public.users.email=fake --approve
+
+pgrun source copy production --wait                          # the one-time Safe Copy
+pgrun branch create production --name dev --wait             # branch off the Safe Copy
+```
+
+`source protect` never activates anything on its own — it prints a table of
+every column, resolve the ones marked `UNRESOLVED` with `--set` (add
+`--acknowledge <table>.<column>` to copy a sensitive one unmasked), then
+`--approve` yourself once you're satisfied. See [Sources](#sources) below
+for the full command table and how secrets are handled.
+
 ## Install
 
 ```sh
@@ -89,6 +115,10 @@ For scripts and CI, skip the prompt: `pgrun auth set --token <TOKEN>
 (no prompt, no network call), or set `PGRUN_API_URL`/`PGRUN_API_TOKEN` in
 the environment. Precedence (highest first): `--url`/`--token` flags on any
 command → env → the config file.
+
+Every `source` subcommand overrides the API base with `--api-url` instead
+of `--url` — on `source add`/`source update`, `--url` is already the
+production connection URL. See [Sources](#sources).
 
 ## Commands
 
@@ -130,6 +160,45 @@ connection string:
 `1` operation/API failure · `2` auth/config missing or rejected (with a
 `pgrun auth login` hint) · `64` usage (bad flags/args).
 
+## Sources
+
+Connect a real production database, resolve its data-protection policy,
+then create a one-time privacy-safe copy to branch from — Connect Postgres
+→ Protect Data → Safe Copy:
+
+| Command | What it does |
+|---|---|
+| `pgrun source list [--json]` | Table: `NAME STATUS PROTECTION SAFE COPY BRANCHES`. Exit 0 on any successful read. |
+| `pgrun source get [<name>] [--json]` | One `key=value` summary line plus the next command to run. Exit 0 on any successful read. |
+| `pgrun source status [<name>] [--json]` | The connect → schema → protect → Safe Copy checklist, plus `Next:`. Exits 1 when the source is `failed`, `action_required`, or its last connection check failed; 0 otherwise. |
+| `pgrun source add --name <n> [--url <postgres://…>] [--wait] [--timeout 120s] [--json]` | Connects a new Production Database. Omit `--url` for a hidden prompt (`Connection URL (input hidden): `, echo off on a terminal); `--json` requires `--url` — a prompt would corrupt the JSON stream. `--wait` polls the connection check to settled (exit 0 once connected, 1 on a failed check or timeout). |
+| `pgrun source update [<name>] [--url <postgres://…>] [--wait] [--timeout 120s] [--json]` | Replaces the connection URL — accepted only while the source has none yet or its last check failed (`409` otherwise). Same secret handling and exit codes as `add`. |
+| `pgrun source protect [<name>] [--set <table>.<column>=copy\|fake\|null\|remove ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]` | Reviews the data-protection policy — prints the table, activates nothing by itself. `--approve` activates it and is refused (422) while any column is unresolved; `--review` asks pgrun to flag the unresolved columns. A repeated `--set` key is a usage error; there is no "copy everything" shortcut. Exit 1 while columns are unresolved, 0 once the review is complete or the policy is activated. |
+| `pgrun source copy [<name>] [--wait] [--timeout 30m] [--json]` | Creates the Safe Copy. Refuses (exit 1, no request sent) if production's schema changed since the policy was approved, a Safe Copy already exists, the last one failed, or protection isn't active yet. `--wait` polls to `ready` (exit 0) or `failed` (exit 1). |
+
+`[<name>]` is the Production Database (= project) name — sources *are*
+projects — and falls back to `.pgrun/project` exactly like a branch
+command's `[<project>]`; set it once with `pgrun project use <slug>`
+(alias: `pgrun projects use`).
+
+**Secrets.** On `add`/`update`, `--url` *is* the production connection URL:
+never printed, never included in `--json`, never repeated in an error, sent
+only in the request body's `connection_url` field. Prefer the hidden
+prompt (`pgrun source add --name production`, no `--url`) over typing the
+URL on a shared shell — a flag's value is visible to other local processes
+and lands in shell history, the prompt is not. Never assign the URL to a
+boolean flag (e.g. `--wait=postgres://…`) — Go's `flag` package echoes an
+invalid boolean value verbatim, which would print the secret; always pass
+it to `--url` on its own.
+
+Because `--url` is taken as the connection URL on `add`/`update`, the
+API-base override on **every** source subcommand (including those two) is
+`--api-url`, not `--url` (`--token` is unchanged). Every other command
+family — `branch`, `project`, `auth` — keeps `--url` as the API base.
+
+A Safe Copy is a one-time copy in this release — refresh/continuous sync
+(Phase 6) does not exist yet; `sync` always reads `snapshot_only`.
+
 ## MCP — use pgrun as an agent tool
 
 `pgrun mcp serve` speaks the [Model Context Protocol](https://modelcontextprotocol.io)
@@ -156,7 +225,8 @@ credentials through its own env, not flags or the config file:
 (Drop that under `mcpServers` in Claude Desktop's config, or in a project's
 `.mcp.json` for Claude Code.)
 
-Tools, one per CLI branch subcommand:
+Tools, one per CLI branch subcommand (no `source` tools yet — connect,
+protect, and copy a Production Database from the CLI):
 
 - `pgrun_create_branch{project,name,ttl?,parent?,wait?=true,timeout_seconds?=300}`
   — waits for ready/failed by default; result JSON includes

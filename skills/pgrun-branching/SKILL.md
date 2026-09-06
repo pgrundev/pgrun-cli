@@ -30,6 +30,28 @@ Postgres (docker, a fixture, sqlite standing in) is representative enough,
 use that instead, it's faster. And regardless of which path got you here:
 **never run destructive work directly against a production DSN.**
 
+## Before the first branch
+
+Some projects branch off a Safe Copy — a one-time, privacy-safe copy of a
+connected Production Database, set up once by a human. If
+`pgrun branch create` refuses (a 404, or any error naming a missing Safe
+Copy) or `pgrun source status <project>` doesn't show `✓ Safe Copy ready`,
+**stop — don't work around it.** Connecting the Production Database and
+approving what gets copied, faked, or dropped are decisions for the human:
+
+- Tell the human to run, themselves: `pgrun source status <project>` →
+  `pgrun source protect <project>` (they review the table and add
+  `--approve`) → `pgrun source copy <project> --wait`.
+- Never run `pgrun source add`/`pgrun source update` on the human's behalf,
+  and never ask them to paste their production connection URL into the
+  chat — it goes straight into the hidden `Connection URL (input hidden):`
+  prompt (or a `--url` flag they type themselves), never through you.
+- Never pass `--approve` yourself. `pgrun source protect` only ever prints
+  a review table — the human reads it and approves it, not you.
+
+Once `pgrun source status <project>` reports `✓ Safe Copy ready`, branch
+normally — the rest of this skill applies unchanged.
+
 ## The workflow
 
 0. **Decide the task actually needs a database** (see "When to use this").

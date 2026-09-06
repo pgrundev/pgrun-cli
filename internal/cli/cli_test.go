@@ -63,6 +63,20 @@ func TestUnknownCommandIsUsage(t *testing.T) {
 	}
 }
 
+// TestHelpMentionsSourceCommands is Task 6's usage-text test: `pgrun help`
+// must document the `source` command family, not just `branch`/`auth`/etc.
+func TestHelpMentionsSourceCommands(t *testing.T) {
+	code, out, _ := run(t, "help")
+	if code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	for _, want := range []string{"pgrun source add", "pgrun source copy"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q: %q", want, out)
+		}
+	}
+}
+
 // --- usage error cases (exit 64) ---
 
 func TestUsageErrors(t *testing.T) {
