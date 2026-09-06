@@ -109,7 +109,8 @@ func sourceCopy(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "✓ Data protection active (policy v%d)\n", src.PolicyVersion)
 			fmt.Fprintln(stdout, "✓ Schema unchanged")
 		}
-		// falls through to the POST below
+		// No return here (unlike every other case): execution continues past
+		// the switch to the POST below.
 
 	default:
 		// Fail closed rather than POST for a status this command doesn't
