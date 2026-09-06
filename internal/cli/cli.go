@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 )
 
 // Exit codes are a public interface (scripts and agents depend on them):
@@ -32,6 +33,13 @@ Usage:
   pgrun branch exec [<project>] <name> -- <command...>
   pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>
   pgrun branch delete [<project>] <name> [--json]
+  pgrun source list [--json]
+  pgrun source get [<name>] [--json]
+  pgrun source status [<name>] [--json]
+  pgrun source add --name <n> [--url <postgres://…>] [--wait] [--timeout 120s] [--json]   (no --url: hidden prompt)
+  pgrun source update [<name>] [--url <postgres://…>] [--wait] [--timeout 120s] [--json]
+  pgrun source protect [<name>] [--set <table>.<column>=copy|fake|null ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]
+  pgrun source copy [<name>] [--wait] [--timeout 30m] [--json]
   pgrun projects list [--json]                    (alias: pgrun project list, and bare "pgrun project"/"pgrun projects")
   pgrun project use <slug> [--no-verify] [--url --token]
   pgrun project show
@@ -49,6 +57,8 @@ Config resolution (highest wins): --url/--token flags > PGRUN_API_URL/PGRUN_API_
 mcp serve reads config from PGRUN_API_URL/PGRUN_API_TOKEN env only (no flags, no config file).
 A branch command's [<project>] may be omitted once "pgrun project use <slug>" has written
 .pgrun/project in (or above) the current directory — every branch command falls back to it.
+A source command's [<name>] is the Production Database (= project) name; it falls back to
+.pgrun/project like branch commands.
 `
 
 // Run parses args (excluding the program name), executes the command, and
@@ -62,6 +72,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "branch":
 		return runBranch(args[1:], stdout, stderr)
+	case "source", "sources":
+		return runSource(args[1:], os.Stdin, stdout, stderr)
 	case "project", "projects":
 		return runProject(args[1:], stdout, stderr)
 	case "auth":
