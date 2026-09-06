@@ -8,6 +8,7 @@
 // "connection_url" — never a query string, never a path segment, never a
 // header — and no error message built here may contain it (messages come
 // solely from the response body / status text, exactly like client.go).
+
 package api
 
 import (
