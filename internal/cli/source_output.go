@@ -181,18 +181,21 @@ func sourceActionable(s api.Source) bool {
 }
 
 // dispositionLabel renders a protect-table disposition in the UI's
-// vocabulary (customer-facing words, not the API's internal ones).
-// "remove" is the CLI's --set alias for "null" (ruling 5); it never comes
-// back from the API, but is included here so both directions render the
-// same word.
+// vocabulary (customer-facing words, not the API's internal ones). Note
+// "remove" — the CLI's --set alias for "null" (ruling 5) — never reaches
+// here: the CLI maps it to "null" before sending it anywhere, and the API
+// only ever returns "null". Upper-casing it here anyway would land on the
+// same word ("REMOVE"), which the default branch already does.
 func dispositionLabel(d string) string {
 	switch d {
-	case "copy", "copy_data":
+	case "copy":
 		return "COPY"
 	case "fake":
 		return "FAKE"
-	case "null", "remove":
+	case "null":
 		return "REMOVE"
+	case "copy_data":
+		return "COPY"
 	case "schema_only":
 		return "SCHEMA ONLY"
 	case "exclude":
