@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,7 +19,8 @@ func TestSourceList_Table(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"sources":[` +
 			`{"name":"production","safe_copy_status":"ready","protection":"active","policy_version":2,"branches":3},` +
-			`{"name":"staging","safe_copy_status":"action_required","protection":"active","policy_version":1,"branches":0}` +
+			`{"name":"staging","safe_copy_status":"action_required","protection":"active","policy_version":1,"branches":0},` +
+			`{"name":"devbox","safe_copy_status":"protect","protection":"draft","policy_version":null,"branches":0}` +
 			`]}`))
 	})
 	code, out, _ := run(t, "source", "list")
@@ -29,6 +31,7 @@ func TestSourceList_Table(t *testing.T) {
 		"NAME", "STATUS", "PROTECTION", "SAFE COPY", "BRANCHES",
 		"production", "ready", "active v2", "3",
 		"staging", "action_required", "active v1", "action required", "0",
+		"devbox", "protect", "draft",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q: %q", want, out)
@@ -38,8 +41,24 @@ func TestSourceList_Table(t *testing.T) {
 		t.Fatalf("table leaked a connection URL: %q", out)
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected header + 2 rows, got %d lines: %q", len(lines), out)
+	if len(lines) != 4 {
+		t.Fatalf("expected header + 3 rows, got %d lines: %q", len(lines), out)
+	}
+	// devbox's protection is "draft" with no active policy version —
+	// protectionCell's passthrough branch must render the bare value, with
+	// no " vN" suffix (that's reserved for an *active* policy).
+	var devboxLine string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "devbox") {
+			devboxLine = l
+		}
+	}
+	if devboxLine == "" {
+		t.Fatalf("no devbox row found: %q", out)
+	}
+	fields := strings.Fields(devboxLine)
+	if len(fields) < 3 || fields[2] != "draft" {
+		t.Fatalf("devbox PROTECTION column = %v, want exactly %q: %q", fields, "draft", devboxLine)
 	}
 }
 
@@ -54,6 +73,26 @@ func TestSourceList_JSON(t *testing.T) {
 	}
 	if !strings.Contains(out, "extra_field") || !strings.Contains(out, "kept-verbatim") {
 		t.Fatalf("--json must print the raw body verbatim: %q", out)
+	}
+}
+
+// TestSourceList_JSON_Empty locks in that the --json path never substitutes
+// the human "no production databases yet" message — an empty sources array
+// prints the raw body verbatim, same as any other --json response.
+func TestSourceList_JSON_Empty(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"sources":[]}`))
+	})
+	code, out, stderr := run(t, "source", "list", "--json")
+	if code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	if strings.TrimSpace(out) != `{"sources":[]}` {
+		t.Fatalf("out = %q, want the raw body verbatim", out)
+	}
+	if strings.Contains(stderr, "no production databases yet") {
+		t.Fatalf("--json path must not print the human empty-list message: stderr=%q", stderr)
 	}
 }
 
@@ -119,6 +158,23 @@ func TestSourceGet_Line(t *testing.T) {
 	}
 }
 
+// TestSourceGet_Line_PolicyDashWhenNoVersion covers sourceLine's
+// PolicyVersion == 0 branch (the API sends null when no policy has ever
+// been approved) — the get line must show "policy=-", not "policy=v0".
+func TestSourceGet_Line_PolicyDashWhenNoVersion(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"name":"production","safe_copy_status":"connect","step":1,"protection":"none","policy_version":null,"unresolved_count":0,"branches":0,"last_check_error":null}`))
+	})
+	code, out, _ := run(t, "source", "get", "production")
+	if code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(out, "policy=-") {
+		t.Fatalf("expected policy=- when policy_version is null: %q", out)
+	}
+}
+
 func TestSourceGet_JSON(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -169,6 +225,38 @@ func TestSourceGet_NoNameNoProject_ExitsUsage(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "no .pgrun/project found") {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+// TestSourceGet_TwoPositionals_PrintsGetUsage covers sourceNameArgs's "too
+// many positionals" path for the "get" command specifically — the usage
+// text shown must be get's own ("[--json]"), not some other command's.
+func TestSourceGet_TwoPositionals_PrintsGetUsage(t *testing.T) {
+	isolateHome(t)
+	code, _, stderr := run(t, "source", "get", "a", "b")
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "pgrun source get [<name>] [--json]") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+// TestSourceNameArgs_UsageFlagsPerCommand exercises sourceUsageFlags'
+// per-command map directly through sourceNameArgs: "copy" must report its
+// own flags ([--wait] [--timeout 30m] [--json]), not the generic
+// [--json] every other command used to get regardless of which one it was.
+func TestSourceNameArgs_UsageFlagsPerCommand(t *testing.T) {
+	var stderr bytes.Buffer
+	name, rest, code, ok := sourceNameArgs("copy", []string{"a", "b"}, &stderr)
+	if ok {
+		t.Fatalf("expected ok=false for two positionals, got name=%q rest=%v", name, rest)
+	}
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr.String(), "[--wait] [--timeout 30m] [--json]") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -228,6 +316,30 @@ func TestSourceStatus_Views(t *testing.T) {
 				"✓ Schema analyzed (10 tables, 5 potentially sensitive columns)",
 				"! Data protection needs review (3 columns need a decision)",
 				"○ Safe Copy not created",
+			},
+			next: "pgrun source protect acme",
+			code: exitSuccess,
+		},
+		{
+			// protectionLine's "draft" branch has three distinct outcomes
+			// (plural/singular unresolved count, and zero-unresolved); the
+			// "protect" case above only exercises unresolved_count:3
+			// (plural). This covers the singular grammar.
+			name: "protect_singular_unresolved",
+			body: `{"name":"acme","safe_copy_status":"protect","step":2,"postgres_version":"16.4","protection":"draft","unresolved_count":1,"tables":10,"sensitive_columns":5}`,
+			lines: []string{
+				"! Data protection needs review (1 column needs a decision)",
+			},
+			next: "pgrun source protect acme",
+			code: exitSuccess,
+		},
+		{
+			// ...and this covers the zero-unresolved ("reviewed but not
+			// approved") outcome.
+			name: "protect_reviewed_not_approved",
+			body: `{"name":"acme","safe_copy_status":"protect","step":2,"postgres_version":"16.4","protection":"draft","unresolved_count":0,"tables":10,"sensitive_columns":5}`,
+			lines: []string{
+				"! Data protection reviewed but not approved",
 			},
 			next: "pgrun source protect acme",
 			code: exitSuccess,

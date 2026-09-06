@@ -44,14 +44,37 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 }
 
+// sourceUsageFlags returns the "[--flag ...]" text that follows "[<name>]"
+// in a source subcommand's usage line — one entry per line in cli.go's
+// usage block, so a "too many arguments" error always shows the flags that
+// command actually accepts, not a generic "[--json]" for every one of
+// them. Unrecognized cmd values (there shouldn't be any) fall back to
+// "[--json]", the smallest common denominator every source subcommand has.
+func sourceUsageFlags(cmd string) string {
+	switch cmd {
+	case "update":
+		return `[--url <postgres://…>] [--wait] [--timeout 120s] [--json]`
+	case "protect":
+		return `[--set <table>.<column>=copy|fake|null ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]`
+	case "copy":
+		return `[--wait] [--timeout 30m] [--json]`
+	case "get", "status":
+		return `[--json]`
+	default:
+		return `[--json]`
+	}
+}
+
 // sourceNameArgs peels the optional leading [<name>] positional shared by
 // get/status/update/protect/copy and resolves it exactly like a branch
-// command's [<project>] (ruling 1: a source name is a project slug).
-// cmd is used only to build the usage-error prefix, e.g. "source get".
+// command's [<project>] (ruling 1: a source name is a project slug). cmd
+// is the bare subcommand name (e.g. "get", "copy") — used both to build
+// the usage-error message and, via sourceUsageFlags, to pick the right
+// flags text for it.
 func sourceNameArgs(cmd string, args []string, stderr io.Writer) (name string, rest []string, code int, ok bool) {
 	pos, rest := leadingPositionals(args)
 	if len(pos) > 1 {
-		return "", nil, usageErrf(stderr, "%s: unexpected argument %q — usage: pgrun %s [<name>] [--json]", cmd, pos[1], cmd), false
+		return "", nil, usageErrf(stderr, "source %s: unexpected argument %q — usage: pgrun source %s [<name>] %s", cmd, pos[1], cmd, sourceUsageFlags(cmd)), false
 	}
 	explicit := ""
 	if len(pos) == 1 {
@@ -99,7 +122,7 @@ func sourceList(args []string, stdout, stderr io.Writer) int {
 }
 
 func sourceGet(args []string, stdout, stderr io.Writer) int {
-	name, rest, code, ok := sourceNameArgs("source get", args, stderr)
+	name, rest, code, ok := sourceNameArgs("get", args, stderr)
 	if !ok {
 		return code
 	}
@@ -134,7 +157,7 @@ func sourceGet(args []string, stdout, stderr io.Writer) int {
 }
 
 func sourceStatus(args []string, stdout, stderr io.Writer) int {
-	name, rest, code, ok := sourceNameArgs("source status", args, stderr)
+	name, rest, code, ok := sourceNameArgs("status", args, stderr)
 	if !ok {
 		return code
 	}
