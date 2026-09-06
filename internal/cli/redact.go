@@ -35,11 +35,36 @@ import (
 // a request back in practice.
 const minStandalonePassword = 4
 
+// jsonTokenPassword reports whether a password is, on its own, a bare JSON
+// token: true, false, null, or a run of digits. Such a password is scrubbed
+// only inside a URL — replacing it standalone would rewrite an unrelated
+// `"policy_version":null` or `"size_bytes":12345` into
+// `"policy_version":[redacted]`, handing a machine consumer of --json a body
+// it cannot parse. Same trade-off as minStandalonePassword: the full and
+// stripped URLs still carry it, which is how a server echoes a request back
+// in practice.
+func jsonTokenPassword(pw string) bool {
+	switch pw {
+	case "true", "false", "null":
+		return true
+	}
+	if pw == "" {
+		return false
+	}
+	for _, r := range pw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // newRedactor scrubs a connection URL from anything the CLI prints. It
 // replaces the full URL, the URL with its password stripped, and — for a
-// password of at least minStandalonePassword characters — the raw password
-// and its percent-encoded forms with "[redacted]", so even an API error
-// that echoes the request back cannot leak the secret.
+// password of at least minStandalonePassword characters that is not itself a
+// JSON token — the raw password and its percent-encoded forms with
+// "[redacted]", so even an API error that echoes the request back cannot
+// leak the secret.
 func newRedactor(secretURL string) *strings.Replacer {
 	pairs := []string{}
 	add := func(s string) {
@@ -49,7 +74,7 @@ func newRedactor(secretURL string) *strings.Replacer {
 	}
 	add(secretURL)
 	if u, err := url.Parse(secretURL); err == nil && u.User != nil {
-		if pw, ok := u.User.Password(); ok && len(pw) >= minStandalonePassword {
+		if pw, ok := u.User.Password(); ok && len(pw) >= minStandalonePassword && !jsonTokenPassword(pw) {
 			add(pw)
 			add(url.QueryEscape(pw))
 			add(url.PathEscape(pw))
@@ -79,15 +104,22 @@ func (rw redactingWriter) Write(p []byte) (int, error) {
 // that claims a short write makes fmt.Fprintf report a spurious error.
 func redactWriter(w io.Writer, r *strings.Replacer) io.Writer { return redactingWriter{w: w, r: r} }
 
-// redactedArg renders an unexpected positional argument for a usage
-// message. Usage errors are printed before any redactor exists (there is
-// no accepted URL yet), and the argument a user is most likely to get
-// wrong here is a bare connection URL typed where a name belongs — so a
-// value shaped like one is reported by shape, never by value. It asks
-// looksLikeConnectionURL, not validConnectionURL: a refusal that fails
-// open on "POSTGRES://…" would leak exactly the value it exists to hide.
+// redactedArg renders an unexpected argument for a usage message. Usage
+// errors are printed before any redactor exists (there is no accepted URL
+// yet), and the argument a user is most likely to get wrong here is a bare
+// connection URL typed where a name, a subcommand or a disposition belongs —
+// so a value shaped like one is reported by shape, never by value. EVERY
+// usage message in this package that would otherwise print an argument with
+// %q goes through this function; a format string that echoes user input is
+// a print site for a secret whether or not its author was thinking about
+// one.
+//
+// It asks containsConnectionURL, not validConnectionURL: a refusal that
+// failed open on "POSTGRES://…" — or on a URL embedded in a longer argument
+// such as "public.users.email=postgres://…" — would leak exactly the value
+// it exists to hide.
 func redactedArg(s string) string {
-	if looksLikeConnectionURL(s) {
+	if containsConnectionURL(s) {
 		return `"[redacted]"`
 	}
 	return fmt.Sprintf("%q", s)

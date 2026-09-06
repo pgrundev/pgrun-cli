@@ -44,7 +44,11 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "copy":
 		return sourceCopy(rest, stdout, stderr)
 	default:
-		return usageErrf(stderr, "source: unknown subcommand %q", sub)
+		// redactedArg, not %q, here and at every other usage message in this
+		// file: `pgrun source postgres://…` (the URL typed where the
+		// subcommand goes) is exactly the kind of slip these messages echo
+		// back, and there is no redactor installed yet to catch it.
+		return usageErrf(stderr, "source: unknown subcommand %s", redactedArg(sub))
 	}
 }
 
@@ -125,7 +129,7 @@ func sourceList(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(fs.Args()) > 0 {
-		return usageErrf(stderr, "source list: unexpected argument %q", fs.Args()[0])
+		return usageErrf(stderr, "source list: unexpected argument %s", redactedArg(fs.Args()[0]))
 	}
 
 	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
@@ -164,7 +168,7 @@ func sourceGet(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(fs.Args()) > 0 {
-		return usageErrf(stderr, "source get: unexpected argument %q", fs.Args()[0])
+		return usageErrf(stderr, "source get: unexpected argument %s", redactedArg(fs.Args()[0]))
 	}
 
 	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
@@ -199,7 +203,7 @@ func sourceStatus(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(fs.Args()) > 0 {
-		return usageErrf(stderr, "source status: unexpected argument %q", fs.Args()[0])
+		return usageErrf(stderr, "source status: unexpected argument %s", redactedArg(fs.Args()[0]))
 	}
 
 	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)

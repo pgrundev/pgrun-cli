@@ -44,8 +44,8 @@ func (m *multiFlag) Set(v string) error {
 // parseSetItem parses one --set <table>.<column>=<disposition> item.
 // "remove" is the CLI's alias for "null" (ruling 5 — the UI's word); ok is
 // false for anything else malformed (no "=", empty key/value, or an
-// unrecognized disposition), so the caller can report the bad item verbatim
-// without ever reaching the server with it.
+// unrecognized disposition), so the caller can report the bad item (through
+// redactedArg) without ever reaching the server with it.
 func parseSetItem(item string) (key, disposition string, ok bool) {
 	idx := strings.Index(item, "=")
 	if idx <= 0 || idx == len(item)-1 {
@@ -81,7 +81,7 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(fs.Args()) > 0 {
-		return usageErrf(stderr, "source protect: unexpected argument %q", fs.Args()[0])
+		return usageErrf(stderr, "source protect: unexpected argument %s", redactedArg(fs.Args()[0]))
 	}
 
 	if *review && (len(sets) > 0 || len(acks) > 0 || *approve) {
@@ -92,7 +92,11 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 	for _, item := range sets {
 		key, disposition, ok := parseSetItem(item)
 		if !ok {
-			return usageErrf(stderr, "source protect: invalid --set %q — expected <table>.<column>=copy|fake|null|remove", item)
+			// redactedArg, not %q: a valid item is never URL-shaped, so
+			// nothing legitimate is hidden — but `--set
+			// public.users.email=postgres://u:pw@h/db` lands here, and the
+			// URL is in the item's *value*, not at its start.
+			return usageErrf(stderr, "source protect: invalid --set %s — expected <table>.<column>=copy|fake|null|remove", redactedArg(item))
 		}
 		if _, dup := decisions[key]; dup {
 			// A repeated --set is almost certainly a mistake (which decision
@@ -133,6 +137,21 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		return handleAPIError(err, *jsonFlag, raw, stdout, stderr)
+	}
+
+	// --approve was passed, the server did not refuse it (no 422) and nothing
+	// is unresolved — yet the policy is still not active. Rendering the
+	// normal review here would end on "Approve to activate the policy: …
+	// --approve", sending the caller back to the command they just ran, and
+	// exit 0 would let a CI script walk on to `copy`. Report what actually
+	// happened and fail; the server stays the authority either way (a `copy`
+	// against an unactivated policy is refused there too).
+	if *approve && !res.Activated && !hasUnresolved(res) {
+		if *jsonFlag {
+			dumpJSON(stdout, raw)
+		}
+		fmt.Fprintf(stderr, "pgrun: the policy was not activated — run `pgrun source status %s`\n", name)
+		return exitFailure
 	}
 
 	if *jsonFlag {

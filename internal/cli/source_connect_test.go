@@ -469,6 +469,55 @@ func TestSourceAdd_HostileServer_Redacts(t *testing.T) {
 	})
 }
 
+// TestSourceAdd_Wait_HostileCheckError_Redacts covers the --wait path's own
+// print sites: last_check_error goes straight into the "connection failed
+// (…)" line, and --json dumps the polled body verbatim. A server that put a
+// credentialed URL in that field would leak it through both, were the
+// redactor installed before the POST not still wrapping these writers.
+func TestSourceAdd_Wait_HostileCheckError_Redacts(t *testing.T) {
+	hostile := func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"name":"production","safe_copy_status":"checking","last_check_error":null}`))
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"name":"production","safe_copy_status":"checking","last_check_error":"boom postgres://u:` + testPassword + `@h/db"}`))
+		}
+	}
+
+	t.Run("human", func(t *testing.T) {
+		withFastPoll(t)
+		withServer(t, hostile)
+		code, out, stderr := run(t, "source", "add", "--name", "production", "--url", testConnURL, "--wait", "--timeout", "5s")
+		if code != exitFailure {
+			t.Fatalf("code = %d, want %d (stderr=%q)", code, exitFailure, stderr)
+		}
+		if !strings.Contains(stderr, "connection failed (") {
+			t.Fatalf("stderr missing the check-failed line: %q", stderr)
+		}
+		if !strings.Contains(stderr, "[redacted]") {
+			t.Fatalf("stderr should show the redaction marker: %q", stderr)
+		}
+		assertNoLeak(t, "stdout", out)
+		assertNoLeak(t, "stderr", stderr)
+	})
+
+	t.Run("json", func(t *testing.T) {
+		withFastPoll(t)
+		withServer(t, hostile)
+		code, out, stderr := run(t, "source", "add", "--name", "production", "--url", testConnURL, "--wait", "--timeout", "5s", "--json")
+		if code != exitFailure {
+			t.Fatalf("code = %d, want %d (stderr=%q)", code, exitFailure, stderr)
+		}
+		if !strings.Contains(out, "[redacted]") {
+			t.Fatalf("--json stdout should show the redaction marker: %q", out)
+		}
+		assertNoLeak(t, "stdout", out)
+		assertNoLeak(t, "stderr", stderr)
+	})
+}
+
 func TestSourceAdd_401ExitsAuth(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -554,6 +603,53 @@ func TestSourceUpdate_409ExitsFailure(t *testing.T) {
 	}
 	assertNoLeak(t, "stdout", out)
 	assertNoLeak(t, "stderr", stderr)
+}
+
+// TestSourceUpdate_HostileServer_Redacts is TestSourceAdd_HostileServer_Redacts
+// for `update`: PATCH has its own redactor install (sourceUpdate), and this
+// is the test that makes those lines load-bearing — every other update test
+// passes trivially because no fixture echoes the URL back. Both refusal
+// codes the contract lists for PATCH are covered, in both output modes.
+func TestSourceUpdate_HostileServer_Redacts(t *testing.T) {
+	for _, tc := range []struct {
+		what   string
+		status int
+		body   string
+	}{
+		{"409", http.StatusConflict, `{"error":"this database is already connected as ` + testConnURL + `"}`},
+		{"422", http.StatusUnprocessableEntity, `{"error":"rejected ` + testConnURL + `"}`},
+	} {
+		hostile := func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			w.Write([]byte(tc.body))
+		}
+
+		t.Run(tc.what+"/human", func(t *testing.T) {
+			withServer(t, hostile)
+			code, out, stderr := run(t, "source", "update", "production", "--url", testConnURL)
+			if code != exitFailure {
+				t.Fatalf("code = %d, want %d", code, exitFailure)
+			}
+			if !strings.Contains(stderr, "[redacted]") {
+				t.Fatalf("stderr should show the redaction marker: %q", stderr)
+			}
+			assertNoLeak(t, "stdout", out)
+			assertNoLeak(t, "stderr", stderr)
+		})
+
+		t.Run(tc.what+"/json", func(t *testing.T) {
+			withServer(t, hostile)
+			code, out, stderr := run(t, "source", "update", "production", "--url", testConnURL, "--json")
+			if code != exitFailure {
+				t.Fatalf("code = %d, want %d", code, exitFailure)
+			}
+			if !strings.Contains(out, "[redacted]") {
+				t.Fatalf("--json stdout should show the redaction marker: %q", out)
+			}
+			assertNoLeak(t, "stdout", out)
+			assertNoLeak(t, "stderr", stderr)
+		})
+	}
 }
 
 func TestSourceUpdate_ProjectFallback(t *testing.T) {
@@ -690,6 +786,7 @@ func TestSourceOtherCommands_URLFlagIsUndefined(t *testing.T) {
 		{"source", "get", "acme", "--url", testConnURL},
 		{"source", "status", "acme", "--url", testConnURL},
 		{"source", "protect", "acme", "--url", testConnURL},
+		{"source", "copy", "acme", "--url", testConnURL},
 	}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

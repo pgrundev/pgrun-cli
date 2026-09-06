@@ -74,6 +74,19 @@ func looksLikeConnectionURL(s string) bool {
 	return validConnectionURL(strings.ToLower(s))
 }
 
+// containsConnectionURL is looksLikeConnectionURL widened from "starts with"
+// to "has one anywhere inside it", for the print side only. A malformed
+// `--set public.users.email=postgres://u:pw@h/db` is not URL-shaped as a
+// whole, so a prefix test would report it verbatim — password and all —
+// while echoing the item back is the only reason to inspect it at all. Never
+// used to accept or transmit anything: refusing to print is always safe,
+// where refusing a *valid* argument that merely embeds "postgres://" would
+// not be.
+func containsConnectionURL(s string) bool {
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "postgres://") || strings.Contains(lower, "postgresql://")
+}
+
 // readConnectionURL prompts for the URL with input hidden, reusing
 // auth login's readToken — which disables terminal echo only when stdin is
 // the real os.Stdin, and otherwise reads a plain stream (that's what makes

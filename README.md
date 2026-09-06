@@ -172,8 +172,8 @@ then create a one-time privacy-safe copy to branch from — Connect Postgres
 | `pgrun source get [<name>] [--json]` | One `key=value` summary line plus the next command to run. Exit 0 on any successful read. |
 | `pgrun source status [<name>] [--json]` | The connect → schema → protect → Safe Copy checklist, plus `Next:`. Exits 1 when the source is `failed`, `action_required`, or its last connection check failed; 0 otherwise. |
 | `pgrun source add --name <n> [--url <postgres://…>] [--wait] [--timeout 120s] [--json]` | Connects a new Production Database. Omit `--url` for a hidden prompt (`Connection URL (input hidden): `, echo off on a terminal); `--json` requires `--url` — a prompt would corrupt the JSON stream. `--wait` polls the connection check to settled (exit 0 once connected, 1 on a failed check or timeout). |
-| `pgrun source update [<name>] [--url <postgres://…>] [--wait] [--timeout 120s] [--json]` | Replaces the connection URL — accepted only while the source has none yet or its last check failed (`409` otherwise). Same secret handling and exit codes as `add`. |
-| `pgrun source protect [<name>] [--set <table>.<column>=copy\|fake\|null\|remove ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]` | Reviews the data-protection policy — prints the table, activates nothing by itself. `--approve` activates it and is refused (422) while any column is unresolved; `--review` asks pgrun to flag the unresolved columns. A repeated `--set` key is a usage error; there is no "copy everything" shortcut. Exit 1 while columns are unresolved, 0 once the review is complete or the policy is activated. |
+| `pgrun source update [<name>] [--url <postgres://…>] [--wait] [--timeout 120s] [--json]` | Replaces the connection URL. The server accepts a new one while the source is still `connect` (no URL yet) or `checking` — which includes a check that failed — and answers `409` once it is connected. Same secret handling and exit codes as `add`. |
+| `pgrun source protect [<name>] [--set <table>.<column>=copy\|fake\|null\|remove ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]` | Reviews the data-protection policy — prints the table, activates nothing by itself. `--approve` activates it and is refused (422) while any column is unresolved; `--review` asks pgrun to flag the unresolved columns. A repeated `--set` key is a usage error; there is no "copy everything" shortcut. Exit 1 while columns are unresolved, or (no request sent) when the source is not connected yet; 0 once the review is complete or the policy is activated. `--review` always exits 0 — asking for a review is not itself a failure — the one exception to "1 while unresolved". `--approve` that comes back without an active policy exits 1. |
 | `pgrun source copy [<name>] [--wait] [--timeout 30m] [--json]` | Creates the Safe Copy. Refuses (exit 1, no request sent) if production's schema changed since the policy was approved, a Safe Copy already exists, the last one failed, or protection isn't active yet. `--wait` polls to `ready` (exit 0) or `failed` (exit 1). |
 
 `[<name>]` is the Production Database (= project) name — sources *are*
@@ -181,15 +181,16 @@ projects — and falls back to `.pgrun/project` exactly like a branch
 command's `[<project>]`; set it once with `pgrun project use <slug>`
 (alias: `pgrun projects use`).
 
-**Secrets.** On `add`/`update`, `--url` *is* the production connection URL:
-never printed, never included in `--json`, never repeated in an error, sent
-only in the request body's `connection_url` field. Prefer the hidden
-prompt (`pgrun source add --name production`, no `--url`) over typing the
-URL on a shared shell — a flag's value is visible to other local processes
-and lands in shell history, the prompt is not. Never assign the URL to a
-boolean flag (e.g. `--wait=postgres://…`) — Go's `flag` package echoes an
-invalid boolean value verbatim, which would print the secret; always pass
-it to `--url` on its own.
+**Secrets.** On `add`/`update`, `--url` *is* the production connection URL
+(both schemes are accepted — `postgres://` and `postgresql://`): never
+printed, never included in `--json`, never repeated in an error, sent only
+in the request body's `connection_url` field. Prefer the hidden prompt
+(`pgrun source add --name production`, no `--url`) over typing the URL on a
+shared shell — a flag's value is visible to other local processes and lands
+in shell history, the prompt is not. Never assign the URL to a non-string
+flag (`--wait=…`, `--json=…`, `--timeout=…`) — Go's `flag` package echoes a
+value it cannot parse verbatim, which would print the secret; always pass it
+to `--url` on its own.
 
 Because `--url` is taken as the connection URL on `add`/`update`, the
 API-base override on **every** source subcommand (including those two) is

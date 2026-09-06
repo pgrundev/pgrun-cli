@@ -548,6 +548,46 @@ func TestSource_NoSubcommandIsUsage(t *testing.T) {
 	}
 }
 
+// TestSourceUsageErrors_NeverEchoAURL is the cross-cutting property behind
+// redactedArg: a usage error is printed before any redactor exists, so any
+// usage message that echoes its argument is a print site for a secret. Each
+// case below puts a credentialed URL in the one position that reaches a
+// different usageErrf site — the subcommand name, the trailing positional of
+// each command that never takes a URL, and a malformed --set item whose
+// *value* is a URL (the argument is not URL-shaped as a whole, so the shape
+// test has to look inside it). None of them may repeat what was typed.
+func TestSourceUsageErrors_NeverEchoAURL(t *testing.T) {
+	cases := []struct {
+		what string
+		args []string
+	}{
+		{"unknown subcommand", []string{"source", testConnURL}},
+		{"list trailing positional", []string{"source", "list", "--json", testConnURL}},
+		{"get trailing positional", []string{"source", "get", "acme", "--json", testConnURL}},
+		{"status trailing positional", []string{"source", "status", "acme", "--json", testConnURL}},
+		{"protect trailing positional", []string{"source", "protect", "acme", "--json", testConnURL}},
+		{"protect malformed --set", []string{"source", "protect", "acme", "--set", "public.users.email=" + testConnURL}},
+		{"copy trailing positional", []string{"source", "copy", "acme", "--json", testConnURL}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.what, func(t *testing.T) {
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+			})
+			code, out, stderr := run(t, tc.args...)
+			if code != exitUsage {
+				t.Fatalf("code = %d, want %d (stdout=%q stderr=%q)", code, exitUsage, out, stderr)
+			}
+			for _, stream := range []struct{ where, s string }{{"stdout", out}, {"stderr", stderr}} {
+				assertNoLeak(t, stream.where, stream.s)
+				if strings.Contains(stream.s, "postgres://") {
+					t.Fatalf("%s echoed a connection URL: %q", stream.where, stream.s)
+				}
+			}
+		})
+	}
+}
+
 // --- dispositionLabel (used by Tasks 3-5, exercised here since it's added
 // in this task's source_output.go) ---
 

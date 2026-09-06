@@ -330,6 +330,45 @@ func TestSourceProtect_CompleteNotApproved(t *testing.T) {
 	}
 }
 
+// TestSourceProtect_ApproveDidNotActivate: --approve was passed, the server
+// did not refuse (no 422) and nothing is unresolved — yet the policy is
+// still not active. Printing "Approve to activate the policy: … --approve"
+// here would send the caller back to the command they just ran, and exit 0
+// would let a CI script walk on to `copy`. Say what happened, exit 1.
+func TestSourceProtect_ApproveDidNotActivate(t *testing.T) {
+	getBody := `{"name":"acme","safe_copy_status":"protect","step":2,"protection":"draft"}`
+	protectBody := `{"name":"acme","safe_copy_status":"protect","policy_version":null,"activated":false,"unresolved_count":0,"unresolved":[],"rules":[{"column":"public.users.id","disposition":"copy","recommended":true,"sensitive":false}],"table_rules":[],"extra_field":"kept-verbatim"}`
+	const wantErr = "pgrun: the policy was not activated — run `pgrun source status acme`"
+
+	t.Run("human", func(t *testing.T) {
+		protectServer(t, "acme", nil, getBody, http.StatusOK, protectBody)
+		code, out, stderr := run(t, "source", "protect", "acme", "--approve")
+		if code != exitFailure {
+			t.Fatalf("code = %d, want %d (out=%q)", code, exitFailure, out)
+		}
+		if !strings.Contains(stderr, wantErr) {
+			t.Fatalf("stderr = %q, want %q", stderr, wantErr)
+		}
+		if strings.Contains(out, "--approve") {
+			t.Fatalf("stdout must not send the caller back to --approve: %q", out)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		protectServer(t, "acme", nil, getBody, http.StatusOK, protectBody)
+		code, out, stderr := run(t, "source", "protect", "acme", "--approve", "--json")
+		if code != exitFailure {
+			t.Fatalf("code = %d, want %d (out=%q)", code, exitFailure, out)
+		}
+		if !strings.Contains(out, "extra_field") || !strings.Contains(out, "kept-verbatim") {
+			t.Fatalf("--json must still dump the raw body first: %q", out)
+		}
+		if !strings.Contains(stderr, wantErr) {
+			t.Fatalf("stderr = %q, want %q", stderr, wantErr)
+		}
+	})
+}
+
 // TestSourceProtect_ExitCodeFollowsUnresolvedList_NotJustCount covers the
 // case where unresolved_count and the Unresolved list disagree: the exit
 // code (and the closing variant) must follow whatever the table actually

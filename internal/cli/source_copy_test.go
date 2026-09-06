@@ -176,6 +176,64 @@ func TestSourceCopy_ReadyToCopy_NoWait(t *testing.T) {
 	}
 }
 
+// TestSourceCopy_SchemaLineFollowsSchemaChanged: the third checklist line is
+// derived from schema_changed, never assumed from ready_to_copy. If a server
+// ever reports that pair inconsistently the checklist must say so rather
+// than claim the schema is unchanged; the POST still goes ahead either way,
+// because ready_to_copy means the server is the one with the final say.
+func TestSourceCopy_SchemaLineFollowsSchemaChanged(t *testing.T) {
+	for _, tc := range []struct {
+		what      string
+		getBody   string
+		want, not string
+	}{
+		{
+			what:    "unchanged",
+			getBody: `{"name":"acme","safe_copy_status":"ready_to_copy","policy_version":2,"schema_changed":false}`,
+			want:    "✓ Schema unchanged",
+			not:     "! Production schema changed",
+		},
+		{
+			what:    "changed",
+			getBody: `{"name":"acme","safe_copy_status":"ready_to_copy","policy_version":2,"schema_changed":true}`,
+			want:    "! Production schema changed",
+			not:     "✓ Schema unchanged",
+		},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			var rec recorder
+			getPath := "/api/v1/sources/acme"
+			postPath := getPath + "/copy"
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == getPath:
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(tc.getBody))
+				case r.Method == http.MethodPost && r.URL.Path == postPath:
+					rec.record(r)
+					w.WriteHeader(http.StatusAccepted)
+					w.Write([]byte(`{"name":"acme","safe_copy_status":"copying","policy_version":2}`))
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+			})
+			code, out, stderr := run(t, "source", "copy", "acme")
+			if code != exitSuccess {
+				t.Fatalf("code = %d, stderr=%q", code, stderr)
+			}
+			if method, path, _, _ := rec.get(); method != http.MethodPost || path != postPath {
+				t.Fatalf("copy request = %s %s, want POST %s — ready_to_copy still POSTs", method, path, postPath)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("stdout missing %q: %q", tc.want, out)
+			}
+			if strings.Contains(out, tc.not) {
+				t.Fatalf("stdout should not contain %q: %q", tc.not, out)
+			}
+		})
+	}
+}
+
 // TestSourceCopy_ReadyToCopy_JSON: --json prints the POST's raw body
 // verbatim, with none of the human headlines mixed in.
 func TestSourceCopy_ReadyToCopy_JSON(t *testing.T) {

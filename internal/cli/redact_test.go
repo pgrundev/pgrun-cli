@@ -99,6 +99,35 @@ func TestRedactor_ShortPasswordOnlyRedactedInsideURL(t *testing.T) {
 	}
 }
 
+// TestRedactor_JSONTokenPasswordOnlyRedactedInsideURL: a password that is
+// itself a bare JSON token (true/false/null, or a run of digits) is scrubbed
+// only as part of a URL. Replacing it standalone would rewrite `"policy_
+// version":null` into `"policy_version":[redacted]` and hand a machine
+// consumer of --json a body it cannot parse — the same trade-off as
+// minStandalonePassword, for a password that is long enough but ambiguous.
+func TestRedactor_JSONTokenPasswordOnlyRedactedInsideURL(t *testing.T) {
+	for _, tc := range []struct {
+		secret, stripped, body string
+	}{
+		{"postgres://u:null@h:5432/db", "postgres://u@h:5432/db", `{"policy_version":null,"activated":false}`},
+		{"postgres://u:true@h:5432/db", "postgres://u@h:5432/db", `{"activated":true,"schema_changed":false}`},
+		{"postgres://u:12345@h:5432/db", "postgres://u@h:5432/db", `{"size_bytes":12345,"tables":42}`},
+	} {
+		t.Run(tc.secret, func(t *testing.T) {
+			red := newRedactor(tc.secret)
+			if got := red.Replace(tc.secret); got != "[redacted]" {
+				t.Errorf("Replace(secret) = %q, want [redacted] — the full URL is always scrubbed", got)
+			}
+			if got := red.Replace(tc.stripped); got != "[redacted]" {
+				t.Errorf("Replace(stripped) = %q, want [redacted]", got)
+			}
+			if got := red.Replace(tc.body); got != tc.body {
+				t.Errorf("Replace(%q) = %q — a JSON-token password must not be replaced standalone", tc.body, got)
+			}
+		})
+	}
+}
+
 // TestRedactor_EmptySecret: a zero-pair Replacer must be usable (no panic)
 // and must leave everything alone.
 func TestRedactor_EmptySecret(t *testing.T) {

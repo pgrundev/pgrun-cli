@@ -8,7 +8,8 @@ expires. It exists so an agent doing destructive database work (migrations,
 load tests, "try this and see what breaks") never has to touch anything that
 matters.
 
-One static Go binary, one API: `/api/v1/projects/:project/branches`,
+One static Go binary, two API families: `/api/v1/projects/:project/branches`
+(branches) and `/api/v1/sources` (Safe Copy setup — see Sources below),
 Bearer-token auth. No daemon, no state beyond a 0600 config file holding a
 URL and a token.
 
@@ -117,6 +118,8 @@ list` never show a connection string in human mode, by design.
 
 ## Sources (Safe Copy setup)
 
+Safety rules 1–7 are in the Safety contract below; 8–9 extend it.
+
 Before an agent can branch off real production-shaped data, a human
 connects the Production Database once — Connect Postgres → Protect Data →
 Safe Copy. Sources *are* projects: `[<name>]` on every command below is the
@@ -141,10 +144,20 @@ pgrun branch create production --name dev --wait
 source is `failed`, `action_required`, or its last connection check failed;
 0 otherwise. `add`/`update`: without `--wait`, 0 (the check runs
 asynchronously); with `--wait`, 0 once connected, 1 on a failed check or on
-timeout. `protect`: 1 while any column is unresolved, 0 once the review is
-complete or the policy is activated. `copy`: 1 on drift/refusal/failure (or,
-with `--wait`, a Safe Copy that lands `failed`); 0 once accepted, or `ready`
-with `--wait`.
+timeout. `protect`: 1 while any column is unresolved, 1 (no request sent)
+when the source is not connected yet, and 1 if an `--approve` comes back
+without an active policy; 0 once the review is complete or the policy is
+activated. `pgrun source protect <n> --review` **always exits 0** — asking
+pgrun for a review is not itself a failure — the one exception to "1 while
+unresolved". `copy`: 1 on drift/refusal/failure (or, with `--wait`, a Safe
+Copy that lands `failed`); 0 once accepted, or `ready` with `--wait`.
+
+The connection URL must start with `postgres://` or `postgresql://` — both
+schemes are accepted, and the client-side refusal of anything else never
+repeats the value. Never assign a connection URL to a non-string flag
+(`--wait=…`, `--json=…`, `--timeout=…`): Go's `flag` package echoes a value
+it cannot parse verbatim, which would print the secret; it belongs to
+`--url` on its own, or to the hidden prompt (rule 8).
 
 **Status vocabulary** (`safe_copy_status`): `connect` (no URL yet) →
 `checking` (connection check running, or holding a failed check —

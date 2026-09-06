@@ -42,7 +42,7 @@ func sourceCopy(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(fs.Args()) > 0 {
-		return usageErrf(stderr, "source copy: unexpected argument %q", fs.Args()[0])
+		return usageErrf(stderr, "source copy: unexpected argument %s", redactedArg(fs.Args()[0]))
 	}
 	jsonOut := *jsonFlag
 
@@ -107,7 +107,17 @@ func sourceCopy(args []string, stdout, stderr io.Writer) int {
 		if !jsonOut {
 			fmt.Fprintln(stdout, "✓ Connection verified")
 			fmt.Fprintf(stdout, "✓ Data protection active (policy v%d)\n", src.PolicyVersion)
-			fmt.Fprintln(stdout, "✓ Schema unchanged")
+			// Read off schema_changed rather than assumed from
+			// ready_to_copy: if a server ever reports that pair
+			// inconsistently, the checklist says what the source object
+			// actually claims instead of asserting something reassuring. The
+			// POST still goes ahead — ready_to_copy is the server's word, and
+			// it has the final say on the request itself.
+			if src.SchemaChanged {
+				fmt.Fprintln(stdout, "! Production schema changed")
+			} else {
+				fmt.Fprintln(stdout, "✓ Schema unchanged")
+			}
 		}
 		// No return here (unlike every other case): execution continues past
 		// the switch to the POST below.
