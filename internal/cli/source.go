@@ -39,8 +39,10 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return sourceAdd(rest, stdin, stdout, stderr)
 	case "update":
 		return sourceUpdate(rest, stdin, stdout, stderr)
-	case "protect", "copy":
-		// Tasks 4-5 replace these with real implementations.
+	case "protect":
+		return sourceProtect(rest, stdout, stderr)
+	case "copy":
+		// Task 5 replaces this with a real implementation.
 		return usageErrf(stderr, "source %s: not implemented yet", sub)
 	default:
 		return usageErrf(stderr, "source: unknown subcommand %q", sub)
