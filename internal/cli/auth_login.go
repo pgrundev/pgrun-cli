@@ -175,7 +175,9 @@ func readToken(br *bufio.Reader, stdin io.Reader, stdout, stderr io.Writer, prom
 				fmt.Fprintln(stdout) // the newline from pressing Enter was never echoed
 			}()
 		} else {
-			fmt.Fprintln(stderr, "warning: could not disable terminal echo (is `stty` installed?) — the token will be visible as you type it")
+			// Noun-free: readToken also reads connection URLs (source
+			// add/update), not just tokens.
+			fmt.Fprintln(stderr, "warning: could not disable terminal echo (is `stty` installed?) — the value will be visible as you type it")
 		}
 	}
 

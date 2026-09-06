@@ -79,6 +79,26 @@ func TestRedactor_UnparsableSecret(t *testing.T) {
 	}
 }
 
+// TestRedactor_ShortPasswordOnlyRedactedInsideURL: a password below
+// minStandalonePassword is scrubbed as part of a URL but never on its own —
+// replacing every "ab" in a response body would mangle a human message and
+// corrupt the --json a machine consumer is parsing.
+func TestRedactor_ShortPasswordOnlyRedactedInsideURL(t *testing.T) {
+	const secret = "postgres://u:ab@h:5432/db"
+	red := newRedactor(secret)
+
+	if got := red.Replace(secret); got != "[redacted]" {
+		t.Errorf("Replace(secret) = %q, want [redacted] — the full URL is always scrubbed", got)
+	}
+	if got := red.Replace("postgres://u@h:5432/db"); got != "[redacted]" {
+		t.Errorf("Replace(stripped) = %q, want [redacted]", got)
+	}
+	const body = `{"error":"table ab_users has an ab column","abbrev":"ab"}`
+	if got := red.Replace(body); got != body {
+		t.Errorf("Replace(%q) = %q — a 2-character password must not be replaced standalone", body, got)
+	}
+}
+
 // TestRedactor_EmptySecret: a zero-pair Replacer must be usable (no panic)
 // and must leave everything alone.
 func TestRedactor_EmptySecret(t *testing.T) {

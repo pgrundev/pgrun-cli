@@ -91,7 +91,7 @@ func sourceNameArgs(cmd string, args []string, stderr io.Writer) (name string, r
 	// becomes a URL path segment, so the secret would be sent to — and
 	// logged by — the API, then echoed back in the 404. Refused here,
 	// before any request, without repeating the value.
-	if validConnectionURL(explicit) {
+	if looksLikeConnectionURL(explicit) {
 		return "", nil, usageErrf(stderr, "source %s: that argument is the Production Database name, not a connection URL — usage: pgrun source %s [<name>] %s", cmd, cmd, sourceUsageFlags(cmd)), false
 	}
 	name, code, ok = resolveProject(explicit, stderr)

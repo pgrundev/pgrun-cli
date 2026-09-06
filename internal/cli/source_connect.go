@@ -53,11 +53,22 @@ func addConnectFlags(fs *flag.FlagSet) connectFlags {
 	}
 }
 
-// validConnectionURL is the client-side scheme check: a fast, clear refusal
-// instead of a round trip, and the only inspection of the value the CLI
-// does before handing it to the API.
+// validConnectionURL is the client-side scheme check for ACCEPTING a URL:
+// a fast, clear refusal instead of a round trip, and the only inspection of
+// the value the CLI does before handing it to the API. Deliberately strict
+// about case — "POSTGRES://…" is refused here with the same value-free
+// message any other wrong scheme gets.
 func validConnectionURL(s string) bool {
 	return strings.HasPrefix(s, "postgres://") || strings.HasPrefix(s, "postgresql://")
+}
+
+// looksLikeConnectionURL is the check for REFUSING to print or transmit a
+// value that might be a connection URL. It must fail closed where
+// validConnectionURL fails open: a guard that lets "POSTGRES://u:pw@h/db"
+// through would put that secret in a request path (and the API's access
+// log), or echo it back in a usage error.
+func looksLikeConnectionURL(s string) bool {
+	return validConnectionURL(strings.ToLower(s))
 }
 
 // readConnectionURL prompts for the URL with input hidden, reusing
@@ -111,7 +122,7 @@ func sourceAdd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// Same slip as in sourceNameArgs: the URL handed to --name would end up
 	// in a request body (and a server log) as a name, outside the redactor
 	// this command builds from --url.
-	if validConnectionURL(*name) {
+	if looksLikeConnectionURL(*name) {
 		return usageErrf(stderr, "source add: --name is the Production Database name, not a connection URL — pass the URL with --url")
 	}
 	connURL, code, ok := f.connectionURL("add", stdin, stdout, stderr)
@@ -124,6 +135,7 @@ func sourceAdd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// to every writer-taking helper below.
 	red := newRedactor(connURL)
 	stdout, stderr = redactWriter(stdout, red), redactWriter(stderr, red)
+	fs.SetOutput(stderr) // every writer from here on is a redacting one
 
 	cfg, code, ok := resolveOrHint(*f.apiURL, *f.token, stderr)
 	if !ok {
@@ -160,6 +172,7 @@ func sourceUpdate(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 
 	red := newRedactor(connURL)
 	stdout, stderr = redactWriter(stdout, red), redactWriter(stderr, red)
+	fs.SetOutput(stderr) // every writer from here on is a redacting one
 
 	cfg, code, ok := resolveOrHint(*f.apiURL, *f.token, stderr)
 	if !ok {
@@ -193,7 +206,10 @@ func checkConnection(client *api.Client, f connectFlags, name, headline string, 
 		fmt.Fprintln(stdout, "→ Checking connection (read-only, nothing is copied)")
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "Next:")
-		fmt.Fprintf(stdout, "  pgrun source status %s\n", name)
+		// sourceNext, not a literal: a source that has just been handed a
+		// URL is "checking", for which sourceNext already names `pgrun
+		// source status <name>` — one definition, so the two can't drift.
+		fmt.Fprintf(stdout, "  %s\n", sourceNext(src))
 		return exitSuccess
 	}
 

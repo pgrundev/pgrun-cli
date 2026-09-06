@@ -26,10 +26,20 @@ import (
 	"strings"
 )
 
+// minStandalonePassword is the length below which a password is scrubbed
+// only as part of a URL, never on its own. A one- or two-character
+// password would otherwise replace those characters everywhere they appear
+// in ordinary text — mangling a human message and, worse, corrupting the
+// --json body a machine consumer is parsing. Short passwords still travel
+// inside the full and password-stripped URLs, which is how a server echoes
+// a request back in practice.
+const minStandalonePassword = 4
+
 // newRedactor scrubs a connection URL from anything the CLI prints. It
-// replaces the full URL, the URL with its password stripped, the raw
-// password, and the password's percent-encoded form with "[redacted]", so
-// even an API error that echoes the request back cannot leak the secret.
+// replaces the full URL, the URL with its password stripped, and — for a
+// password of at least minStandalonePassword characters — the raw password
+// and its percent-encoded forms with "[redacted]", so even an API error
+// that echoes the request back cannot leak the secret.
 func newRedactor(secretURL string) *strings.Replacer {
 	pairs := []string{}
 	add := func(s string) {
@@ -39,7 +49,7 @@ func newRedactor(secretURL string) *strings.Replacer {
 	}
 	add(secretURL)
 	if u, err := url.Parse(secretURL); err == nil && u.User != nil {
-		if pw, ok := u.User.Password(); ok {
+		if pw, ok := u.User.Password(); ok && len(pw) >= minStandalonePassword {
 			add(pw)
 			add(url.QueryEscape(pw))
 			add(url.PathEscape(pw))
@@ -73,9 +83,11 @@ func redactWriter(w io.Writer, r *strings.Replacer) io.Writer { return redacting
 // message. Usage errors are printed before any redactor exists (there is
 // no accepted URL yet), and the argument a user is most likely to get
 // wrong here is a bare connection URL typed where a name belongs — so a
-// value shaped like one is reported by shape, never by value.
+// value shaped like one is reported by shape, never by value. It asks
+// looksLikeConnectionURL, not validConnectionURL: a refusal that fails
+// open on "POSTGRES://…" would leak exactly the value it exists to hide.
 func redactedArg(s string) string {
-	if validConnectionURL(s) {
+	if looksLikeConnectionURL(s) {
 		return `"[redacted]"`
 	}
 	return fmt.Sprintf("%q", s)

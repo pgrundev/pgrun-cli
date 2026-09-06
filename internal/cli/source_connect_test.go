@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -277,6 +278,61 @@ func TestSourceAdd_URLAsNameIsRefused(t *testing.T) {
 	if !strings.Contains(stderr, "not a connection URL") {
 		t.Fatalf("stderr = %q", stderr)
 	}
+	assertNoLeak(t, "stderr", stderr)
+}
+
+// TestSourceAdd_NonPostgresSchemesAreUsage covers the acceptance side of
+// the scheme check, including the uppercase spelling: refused client-side,
+// with a message that names the rule and never the value.
+func TestSourceAdd_NonPostgresSchemesAreUsage(t *testing.T) {
+	for _, bad := range []string{
+		"https://api.example.com",
+		"POSTGRES://app:SECRETPW@db.example.com/prod",
+	} {
+		t.Run(bad, func(t *testing.T) {
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+			})
+			code, _, stderr := run(t, "source", "add", "--name", "production", "--url", bad)
+			if code != exitUsage {
+				t.Fatalf("code = %d, want %d", code, exitUsage)
+			}
+			if !strings.Contains(stderr, "must start with postgres:// or postgresql://") {
+				t.Fatalf("stderr = %q", stderr)
+			}
+			if strings.Contains(stderr, bad) || strings.Contains(stderr, testPassword) {
+				t.Fatalf("usage error echoed the value: %q", stderr)
+			}
+		})
+	}
+}
+
+// TestSourceAdd_APIURLFlagWins: --url is the connection URL on this
+// command, so --api-url is what overrides the configured API base URL.
+func TestSourceAdd_APIURLFlagWins(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("request went to the env-configured API instead of --api-url: %s %s", r.Method, r.URL.Path)
+	})
+	var rec recorder
+	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"name":"production","safe_copy_status":"checking"}`))
+	}))
+	t.Cleanup(override.Close)
+
+	code, out, stderr := run(t, "source", "add", "--name", "production", "--url", testConnURL, "--api-url", override.URL)
+	if code != exitSuccess {
+		t.Fatalf("code = %d, stderr=%q", code, stderr)
+	}
+	method, path, _, _ := rec.get()
+	if method != http.MethodPost || path != "/api/v1/sources" {
+		t.Fatalf("--api-url server saw %s %s, want POST /api/v1/sources", method, path)
+	}
+	if got := rec.bodyField(t, "connection_url"); got != testConnURL {
+		t.Fatalf("body connection_url = %q", got)
+	}
+	assertNoLeak(t, "stdout", out)
 	assertNoLeak(t, "stderr", stderr)
 }
 
@@ -579,6 +635,44 @@ func TestSourceUpdate_URLAsNameIsRefused(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr)
 	}
 	assertNoLeak(t, "stderr", stderr)
+}
+
+// TestSourceUpdate_UppercaseURLAsNameIsRefused: the refusal guard asks
+// looksLikeConnectionURL, so an uppercase scheme cannot slip past it into
+// a request path (and the API's access log) or into the usage message.
+func TestSourceUpdate_UppercaseURLAsNameIsRefused(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	code, _, stderr := run(t, "source", "update", "POSTGRES://u:pw@h/db", "--url", testConnURL)
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d", code, exitUsage)
+	}
+	if strings.Contains(stderr, "POSTGRES://") || strings.Contains(stderr, "pw") {
+		t.Fatalf("usage error echoed the value: %q", stderr)
+	}
+	assertNoLeak(t, "stderr", stderr)
+}
+
+// TestSourceReads_URLAsNameIsRefused: the guard lives in the shared
+// [<name>] parser, so the read commands are covered too — a URL typed
+// where the name goes never becomes a request path.
+func TestSourceReads_URLAsNameIsRefused(t *testing.T) {
+	for _, sub := range []string{"get", "status"} {
+		t.Run(sub, func(t *testing.T) {
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+			})
+			code, _, stderr := run(t, "source", sub, testConnURL)
+			if code != exitUsage {
+				t.Fatalf("code = %d, want %d", code, exitUsage)
+			}
+			if !strings.Contains(stderr, "not a connection URL") {
+				t.Fatalf("stderr = %q", stderr)
+			}
+			assertNoLeak(t, "stderr", stderr)
+		})
+	}
 }
 
 // --- dispatch ---
