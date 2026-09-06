@@ -525,23 +525,12 @@ func TestSourceStatus_404ExitsFailureWithMessage(t *testing.T) {
 	}
 }
 
-// --- placeholders / dispatch ---
-
-func TestSourcePlaceholders_NotImplemented(t *testing.T) {
-	isolateHome(t)
-	// add/update are implemented in source_connect.go (see
-	// source_connect_test.go); protect is implemented in source_protect.go
-	// (see source_protect_test.go); copy is still Task 5.
-	for _, sub := range []string{"copy"} {
-		code, _, stderr := run(t, "source", sub)
-		if code != exitUsage {
-			t.Errorf("source %s: code = %d, want %d", sub, code, exitUsage)
-		}
-		if !strings.Contains(stderr, "not implemented yet") {
-			t.Errorf("source %s: stderr = %q", sub, stderr)
-		}
-	}
-}
+// --- dispatch ---
+//
+// add/update are implemented in source_connect.go (see
+// source_connect_test.go); protect is implemented in source_protect.go (see
+// source_protect_test.go); copy is implemented in source_copy.go (see
+// TestSourceCopy_IsDispatched in source_copy_test.go).
 
 func TestSource_UnknownSubcommandIsUsage(t *testing.T) {
 	isolateHome(t)

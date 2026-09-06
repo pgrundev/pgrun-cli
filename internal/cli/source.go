@@ -1,9 +1,9 @@
 // This file implements `pgrun source ...`: Connect Postgres -> Protect
 // Data -> Create Safe Copy, the CLI surface for the sources API added in
-// internal/api/sources.go. list/get/status are implemented here; add,
-// update, protect, and copy are placeholders for later tasks. Same
-// conventions as branch.go: leadingPositionals for the optional [<name>]
-// positional, resolveProject/resolveOrHint for config resolution,
+// internal/api/sources.go. list/get/status are implemented here; add and
+// update live in source_connect.go, protect in source_protect.go, and copy
+// in source_copy.go. Same conventions as branch.go: leadingPositionals for
+// the optional [<name>] positional, resolveProject/resolveOrHint for config resolution,
 // handleAPIError/dumpJSON for API errors and --json passthrough. Per
 // ruling 1, a source's name IS a project slug — sourceNameArgs falls back
 // through the same .pgrun/project file branch commands use.
@@ -42,10 +42,7 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "protect":
 		return sourceProtect(rest, stdout, stderr)
 	case "copy":
-		// Task 5 replaces this with a real implementation — it must use
-		// addSourceAuthFlags for its API-base/token override (--api-url,
-		// not --url), matching list/get/status/protect above.
-		return usageErrf(stderr, "source %s: not implemented yet", sub)
+		return sourceCopy(rest, stdout, stderr)
 	default:
 		return usageErrf(stderr, "source: unknown subcommand %q", sub)
 	}
