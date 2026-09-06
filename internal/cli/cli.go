@@ -38,7 +38,7 @@ Usage:
   pgrun source status [<name>] [--json]
   pgrun source add --name <n> [--url <postgres://…>] [--wait] [--timeout 120s] [--json]   (no --url: hidden prompt)
   pgrun source update [<name>] [--url <postgres://…>] [--wait] [--timeout 120s] [--json]
-  pgrun source protect [<name>] [--set <table>.<column>=copy|fake|null ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]
+  pgrun source protect [<name>] [--set <table>.<column>=copy|fake|null|remove ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]
   pgrun source copy [<name>] [--wait] [--timeout 30m] [--json]
   pgrun projects list [--json]                    (alias: pgrun project list, and bare "pgrun project"/"pgrun projects")
   pgrun project use <slug> [--no-verify] [--url --token]

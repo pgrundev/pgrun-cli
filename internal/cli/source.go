@@ -73,7 +73,7 @@ func sourceUsageFlags(cmd string) string {
 	case "update":
 		return `[--url <postgres://…>] [--wait] [--timeout 120s] [--json]`
 	case "protect":
-		return `[--set <table>.<column>=copy|fake|null ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]`
+		return `[--set <table>.<column>=copy|fake|null|remove ...] [--acknowledge <table>.<column> ...] [--approve] [--review] [--json]`
 	case "copy":
 		return `[--wait] [--timeout 30m] [--json]`
 	case "get", "status":
