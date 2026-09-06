@@ -59,6 +59,8 @@ A branch command's [<project>] may be omitted once "pgrun project use <slug>" ha
 .pgrun/project in (or above) the current directory — every branch command falls back to it.
 A source command's [<name>] is the Production Database (= project) name; it falls back to
 .pgrun/project like branch commands.
+Every source command overrides the API base with --api-url (not --url: on source add/update
+--url is the production connection URL).
 `
 
 // Run parses args (excluding the program name), executes the command, and

@@ -675,6 +675,40 @@ func TestSourceReads_URLAsNameIsRefused(t *testing.T) {
 	}
 }
 
+// TestSourceOtherCommands_URLFlagIsUndefined is the cross-cutting ruling:
+// every source subcommand except add/update spells its API-base override
+// --api-url, never --url (on add/update, --url is already the production
+// connection URL). --url is therefore an undefined flag everywhere else —
+// stdlib's flag package refuses it by name only ("flag provided but not
+// defined: -url"), never echoing the value that followed it, so a
+// credentialed URL typed there (a plausible slip: `pgrun source protect x
+// --url postgres://u:pw@h/db`) never reaches config.Resolve, a request, or
+// an error message.
+func TestSourceOtherCommands_URLFlagIsUndefined(t *testing.T) {
+	cases := [][]string{
+		{"source", "list", "--url", testConnURL},
+		{"source", "get", "acme", "--url", testConnURL},
+		{"source", "status", "acme", "--url", testConnURL},
+		{"source", "protect", "acme", "--url", testConnURL},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+			})
+			code, out, stderr := run(t, args...)
+			if code != exitUsage {
+				t.Fatalf("code = %d, want %d (stderr=%q)", code, exitUsage, stderr)
+			}
+			if !strings.Contains(stderr, "flag provided but not defined") {
+				t.Fatalf("stderr = %q", stderr)
+			}
+			assertNoLeak(t, "stdout", out)
+			assertNoLeak(t, "stderr", stderr)
+		})
+	}
+}
+
 // --- dispatch ---
 
 // TestSourceAddUpdate_AreDispatched guards against the Task 2 placeholders

@@ -30,9 +30,11 @@ import (
 //
 // Note --url: on these two commands it is the *connection* URL, per the
 // documented usage (`pgrun source add --name <n> [--url <postgres://…>]`),
-// so they cannot also use addAuthFlags' --url for the API base URL. The
-// API-URL override is spelled --api-url here instead; --token is unchanged,
-// and PGRUN_API_URL/config-file resolution work exactly as everywhere else.
+// so they cannot also use addSourceAuthFlags' --api-url flag under the name
+// --url for the API base URL — hence addSourceAuthFlags (shared with every
+// other source subcommand) registers the override as --api-url here too;
+// --token is unchanged, and PGRUN_API_URL/config-file resolution work
+// exactly as everywhere else.
 type connectFlags struct {
 	url     *string
 	wait    *bool
@@ -43,13 +45,14 @@ type connectFlags struct {
 }
 
 func addConnectFlags(fs *flag.FlagSet) connectFlags {
+	apiURL, token := addSourceAuthFlags(fs)
 	return connectFlags{
 		url:     fs.String("url", "", "connection URL for the production database (omit for a hidden prompt)"),
 		wait:    fs.Bool("wait", false, "poll until the connection check settles"),
 		timeout: fs.Duration("timeout", 120*time.Second, "max time to wait with --wait"),
 		json:    addJSONFlag(fs),
-		apiURL:  fs.String("api-url", "", "API base URL (overrides env/config; --url is the connection URL here)"),
-		token:   fs.String("token", "", "API token (overrides env/config)"),
+		apiURL:  apiURL,
+		token:   token,
 	}
 }
 

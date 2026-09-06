@@ -194,6 +194,9 @@ func TestSourceProtect_SetRemoveAliasAndRepeats(t *testing.T) {
 	if decisions["public.users.bio"] != "null" {
 		t.Fatalf("bio decision = %v, want null (remove is an alias)", decisions["public.users.bio"])
 	}
+	if _, ok := decoded["approve"]; ok {
+		t.Fatalf("approve must be absent without --approve: %v", decoded)
+	}
 }
 
 // --- --acknowledge appears in the request body ---
@@ -216,6 +219,29 @@ func TestSourceProtect_AcknowledgeInBody(t *testing.T) {
 	ack, ok := decoded["acknowledge"].([]any)
 	if !ok || len(ack) != 1 || ack[0] != "public.users.ssn" {
 		t.Fatalf("acknowledge = %v", decoded["acknowledge"])
+	}
+	if _, ok := decoded["approve"]; ok {
+		t.Fatalf("approve must be absent without --approve: %v", decoded)
+	}
+}
+
+// TestSourceProtect_FlaglessPostBodyIsEmptyObject: no --set/--acknowledge/
+// --approve at all must produce an empty JSON object body — decisions,
+// acknowledge, and approve are all "omitempty", and none of the three may
+// leak through as a zero value (empty map/slice, or approve:false).
+func TestSourceProtect_FlaglessPostBodyIsEmptyObject(t *testing.T) {
+	var rec recorder
+	getBody := `{"name":"acme","safe_copy_status":"protect","step":2,"protection":"draft"}`
+	protectBody := `{"name":"acme","safe_copy_status":"protect","policy_version":null,"activated":false,"unresolved_count":0,"unresolved":[],"rules":[],"table_rules":[]}`
+	protectServer(t, "acme", &rec, getBody, http.StatusOK, protectBody)
+
+	code, _, stderr := run(t, "source", "protect", "acme")
+	if code != exitSuccess {
+		t.Fatalf("code = %d, stderr=%q", code, stderr)
+	}
+	_, _, _, body := rec.get()
+	if got := strings.TrimSpace(string(body)); got != "{}" {
+		t.Fatalf("body = %q, want exactly {}", got)
 	}
 }
 
@@ -304,6 +330,27 @@ func TestSourceProtect_CompleteNotApproved(t *testing.T) {
 	}
 }
 
+// TestSourceProtect_ExitCodeFollowsUnresolvedList_NotJustCount covers the
+// case where unresolved_count and the Unresolved list disagree: the exit
+// code (and the closing variant) must follow whatever the table actually
+// rendered (len(Unresolved)), never a possibly-stale unresolved_count.
+func TestSourceProtect_ExitCodeFollowsUnresolvedList_NotJustCount(t *testing.T) {
+	getBody := `{"name":"acme","safe_copy_status":"protect","step":2,"protection":"draft"}`
+	protectBody := `{"name":"acme","safe_copy_status":"protect","policy_version":null,"activated":false,"unresolved_count":0,"unresolved":[{"column":"public.a.b","sensitive":false,"valid":["copy","null"]}],"rules":[],"table_rules":[]}`
+	protectServer(t, "acme", nil, getBody, http.StatusOK, protectBody)
+
+	code, out, stderr := run(t, "source", "protect", "acme")
+	if code != exitFailure {
+		t.Fatalf("code = %d, want %d (out=%q, stderr=%q)", code, exitFailure, out, stderr)
+	}
+	if !strings.Contains(out, "1 column(s) need a decision.") {
+		t.Fatalf("out missing the unresolved closing: %q", out)
+	}
+	if strings.Contains(out, "Every column is resolved") {
+		t.Fatalf("out should not show the complete-but-not-approved closing: %q", out)
+	}
+}
+
 // --- schema-change block ---
 
 func TestSourceProtect_SchemaChangeBlock(t *testing.T) {
@@ -325,6 +372,12 @@ func TestSourceProtect_SchemaChangeBlock(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("out missing %q: %q", want, out)
 		}
+	}
+	// No rules and no unresolved columns in this fixture — the
+	// COLUMN/DISPOSITION/SOURCE table must be skipped entirely rather than
+	// rendering a bare, row-less header.
+	if strings.Contains(out, "DISPOSITION") {
+		t.Fatalf("out should not render an empty review table: %q", out)
 	}
 }
 
@@ -521,6 +574,25 @@ func TestSourceProtect_MalformedSetIsUsage(t *testing.T) {
 	}
 }
 
+// TestSourceProtect_DuplicateSetKeyIsUsage: a repeated --set for the same
+// column is refused before any request — silently letting the last one win
+// would hide a likely mistake.
+func TestSourceProtect_DuplicateSetKeyIsUsage(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	code, _, stderr := run(t, "source", "protect", "acme",
+		"--set", "public.users.bio=copy",
+		"--set", "public.users.bio=fake",
+	)
+	if code != exitUsage {
+		t.Fatalf("code = %d, want %d (stderr=%q)", code, exitUsage, stderr)
+	}
+	if !strings.Contains(stderr, "--set names public.users.bio twice") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
 // --- --json verbatim, exit code follows unresolved_count ---
 
 func TestSourceProtect_JSON_ExitFollowsUnresolvedCount(t *testing.T) {
@@ -542,6 +614,9 @@ func TestSourceProtect_JSON_ExitFollowsUnresolvedCount(t *testing.T) {
 			}
 			if !strings.Contains(out, "extra_field") || !strings.Contains(out, "kept-verbatim") {
 				t.Fatalf("--json must print the raw body verbatim: %q", out)
+			}
+			if strings.Contains(out, "DISPOSITION") {
+				t.Fatalf("--json must not also render the human table: %q", out)
 			}
 		})
 	}

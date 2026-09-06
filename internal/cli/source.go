@@ -42,11 +42,27 @@ func runSource(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "protect":
 		return sourceProtect(rest, stdout, stderr)
 	case "copy":
-		// Task 5 replaces this with a real implementation.
+		// Task 5 replaces this with a real implementation — it must use
+		// addSourceAuthFlags for its API-base/token override (--api-url,
+		// not --url), matching list/get/status/protect above.
 		return usageErrf(stderr, "source %s: not implemented yet", sub)
 	default:
 		return usageErrf(stderr, "source: unknown subcommand %q", sub)
 	}
+}
+
+// addSourceAuthFlags registers the API-base/token override flags shared by
+// every `source` subcommand EXCEPT add/update: --api-url and --token. This
+// is deliberately not addAuthFlags (branch/project/auth's --url = API
+// base) — on `source add`/`source update`, --url is already taken as the
+// production connection URL (see connectFlags in source_connect.go), so
+// every other source command spells the API-base override --api-url
+// instead. Registering plain --url here too would mean `pgrun source
+// protect x --url postgres://u:pw@h/db` quietly fed a credentialed URL into
+// config.Resolve, and a resulting transport error could echo it back.
+func addSourceAuthFlags(fs *flag.FlagSet) (apiURL, token *string) {
+	return fs.String("api-url", "", "API base URL (overrides env/config)"),
+		fs.String("token", "", "API token (overrides env/config)")
 }
 
 // sourceUsageFlags returns the "[--flag ...]" text that follows "[<name>]"
@@ -107,7 +123,7 @@ func sourceList(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("source list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonFlag := addJSONFlag(fs)
-	urlFlag, tokenFlag := addAuthFlags(fs)
+	apiURLFlag, tokenFlag := addSourceAuthFlags(fs)
 	if ok, code := parseOrExit(fs, args); !ok {
 		return code
 	}
@@ -115,7 +131,7 @@ func sourceList(args []string, stdout, stderr io.Writer) int {
 		return usageErrf(stderr, "source list: unexpected argument %q", fs.Args()[0])
 	}
 
-	cfg, code, ok := resolveOrHint(*urlFlag, *tokenFlag, stderr)
+	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
 	if !ok {
 		return code
 	}
@@ -146,7 +162,7 @@ func sourceGet(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("source get", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonFlag := addJSONFlag(fs)
-	urlFlag, tokenFlag := addAuthFlags(fs)
+	apiURLFlag, tokenFlag := addSourceAuthFlags(fs)
 	if ok, code := parseOrExit(fs, rest); !ok {
 		return code
 	}
@@ -154,7 +170,7 @@ func sourceGet(args []string, stdout, stderr io.Writer) int {
 		return usageErrf(stderr, "source get: unexpected argument %q", fs.Args()[0])
 	}
 
-	cfg, code, ok := resolveOrHint(*urlFlag, *tokenFlag, stderr)
+	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
 	if !ok {
 		return code
 	}
@@ -181,7 +197,7 @@ func sourceStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("source status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonFlag := addJSONFlag(fs)
-	urlFlag, tokenFlag := addAuthFlags(fs)
+	apiURLFlag, tokenFlag := addSourceAuthFlags(fs)
 	if ok, code := parseOrExit(fs, rest); !ok {
 		return code
 	}
@@ -189,7 +205,7 @@ func sourceStatus(args []string, stdout, stderr io.Writer) int {
 		return usageErrf(stderr, "source status: unexpected argument %q", fs.Args()[0])
 	}
 
-	cfg, code, ok := resolveOrHint(*urlFlag, *tokenFlag, stderr)
+	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
 	if !ok {
 		return code
 	}

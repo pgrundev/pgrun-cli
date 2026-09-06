@@ -76,7 +76,7 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 	approve := fs.Bool("approve", false, "activate the policy (refused while any column is unresolved)")
 	review := fs.Bool("review", false, "ask pgrun to flag every unresolved column for review")
 	jsonFlag := addJSONFlag(fs)
-	urlFlag, tokenFlag := addAuthFlags(fs)
+	apiURLFlag, tokenFlag := addSourceAuthFlags(fs)
 	if ok, code := parseOrExit(fs, rest); !ok {
 		return code
 	}
@@ -94,10 +94,16 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 		if !ok {
 			return usageErrf(stderr, "source protect: invalid --set %q — expected <table>.<column>=copy|fake|null|remove", item)
 		}
+		if _, dup := decisions[key]; dup {
+			// A repeated --set is almost certainly a mistake (which decision
+			// did the caller actually mean?) — refused before any request
+			// rather than silently letting the last one win.
+			return usageErrf(stderr, "source protect: --set names %s twice", key)
+		}
 		decisions[key] = disposition
 	}
 
-	cfg, code, ok := resolveOrHint(*urlFlag, *tokenFlag, stderr)
+	cfg, code, ok := resolveOrHint(*apiURLFlag, *tokenFlag, stderr)
 	if !ok {
 		return code
 	}
@@ -138,11 +144,22 @@ func sourceProtect(args []string, stdout, stderr io.Writer) int {
 	return protectExitCode(res)
 }
 
+// hasUnresolved is the single predicate for "is this response unresolved" —
+// shared by protectExitCode and writeProtectReview's closing-variant choice
+// so the exit code can never contradict what the table just showed. It
+// checks both UnresolvedCount and len(Unresolved): a server response could
+// in principle carry entries in one without the other being consistent, and
+// the table renders off Unresolved, so the exit code must account for it
+// too.
+func hasUnresolved(res api.ProtectResult) bool {
+	return res.UnresolvedCount > 0 || len(res.Unresolved) > 0
+}
+
 // protectExitCode is ruling 4 for `protect`: 1 while columns are
 // unresolved, 0 once the review is complete or the policy was activated —
 // true in both output modes, --json only changes how it's reported.
 func protectExitCode(res api.ProtectResult) int {
-	if res.UnresolvedCount > 0 {
+	if hasUnresolved(res) {
 		return exitFailure
 	}
 	return exitSuccess
@@ -185,28 +202,33 @@ func writeProtectReview(w io.Writer, name string, src api.Source, res api.Protec
 		fmt.Fprintf(w, "  %-9s%s\n", "retyped:", commaOrDash(src.SchemaChanges.Retyped))
 	}
 
-	fmt.Fprintln(w)
-	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "COLUMN\tDISPOSITION\tSOURCE")
-	for _, rule := range res.Rules {
-		column := rule.Column
-		if rule.Sensitive {
-			column += " (sensitive)"
+	// A bare "COLUMN DISPOSITION SOURCE" header with no rows helps nobody —
+	// skip the whole table when there's nothing to put in it (e.g. a
+	// schema-change-only response with no column rules yet).
+	if len(res.Rules) > 0 || len(res.Unresolved) > 0 {
+		fmt.Fprintln(w)
+		tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "COLUMN\tDISPOSITION\tSOURCE")
+		for _, rule := range res.Rules {
+			column := rule.Column
+			if rule.Sensitive {
+				column += " (sensitive)"
+			}
+			source := "decided"
+			if rule.Recommended {
+				source = "recommended"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", column, dispositionLabel(rule.Disposition), source)
 		}
-		source := "decided"
-		if rule.Recommended {
-			source = "recommended"
+		for _, u := range res.Unresolved {
+			source := "valid: " + strings.Join(u.Valid, ", ")
+			if u.Sensitive {
+				source += " (sensitive — copying needs --acknowledge)"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", u.Column, "UNRESOLVED", source)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", column, dispositionLabel(rule.Disposition), source)
+		tw.Flush()
 	}
-	for _, u := range res.Unresolved {
-		source := "valid: " + strings.Join(u.Valid, ", ")
-		if u.Sensitive {
-			source += " (sensitive — copying needs --acknowledge)"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", u.Column, "UNRESOLVED", source)
-	}
-	tw.Flush()
 
 	if len(res.TableRules) > 0 {
 		fmt.Fprintln(w)
@@ -220,8 +242,11 @@ func writeProtectReview(w io.Writer, name string, src api.Source, res api.Protec
 
 	fmt.Fprintln(w)
 	switch {
-	case res.UnresolvedCount > 0:
-		fmt.Fprintf(w, "%d column(s) need a decision.\n", res.UnresolvedCount)
+	case hasUnresolved(res):
+		// Count off len(Unresolved) — the table above rendered exactly
+		// these rows, so the number in this sentence must match what's on
+		// screen even if UnresolvedCount itself were ever inconsistent.
+		fmt.Fprintf(w, "%d column(s) need a decision.\n", len(res.Unresolved))
 		fmt.Fprintln(w, "Run:")
 		for _, u := range res.Unresolved {
 			line := fmt.Sprintf("  pgrun source protect %s --set %s=copy|fake|null", name, u.Column)
