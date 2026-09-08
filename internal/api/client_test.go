@@ -402,3 +402,28 @@ func TestWithDatabaseURL_MalformedRawFallsBackUnmodified(t *testing.T) {
 		t.Fatalf("expected the malformed input back unmodified, got %s", out)
 	}
 }
+
+// Every request identifies the client to the server (usage analytics): the
+// CLI as cli/<version>, the MCP server as mcp/<version>, plus a User-Agent.
+func TestRequestHeaders_IdentifyClient(t *testing.T) {
+	Version = "1.2.3"
+	t.Cleanup(func() { Version = "dev" })
+	for _, tc := range []struct{ kind, want string }{{"", "cli/1.2.3"}, {"mcp", "mcp/1.2.3"}} {
+		var gotClient, gotUA string
+		client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			gotClient = r.Header.Get("X-PGRun-Client")
+			gotUA = r.Header.Get("User-Agent")
+			w.Write([]byte(`{"branches":[]}`))
+		})
+		client.Kind = tc.kind
+		if _, _, err := client.ListBranches(context.Background(), "proj1"); err != nil {
+			t.Fatalf("ListBranches: %v", err)
+		}
+		if gotClient != tc.want {
+			t.Fatalf("X-PGRun-Client = %q, want %q", gotClient, tc.want)
+		}
+		if gotUA != "pgrun-cli/1.2.3" {
+			t.Fatalf("User-Agent = %q", gotUA)
+		}
+	}
+}

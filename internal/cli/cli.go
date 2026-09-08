@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/pgrundev/pgrun-cli/internal/api"
 )
 
 // Exit codes are a public interface (scripts and agents depend on them):
@@ -66,6 +68,7 @@ Every source command overrides the API base with --api-url (not --url: on source
 // Run parses args (excluding the program name), executes the command, and
 // returns the process exit code. It never calls os.Exit itself.
 func Run(args []string, stdout, stderr io.Writer) int {
+	api.Version = Version // every request identifies itself (usage analytics)
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return exitUsage

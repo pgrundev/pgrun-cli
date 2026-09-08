@@ -36,6 +36,7 @@ func runMCP(args []string, stdout, stderr io.Writer) int {
 	var client *api.Client
 	if url, token := os.Getenv("PGRUN_API_URL"), os.Getenv("PGRUN_API_TOKEN"); url != "" && token != "" {
 		client = api.New(url, token)
+		client.Kind = "mcp" // branches created through MCP tools are labeled mcp, not cli
 	}
 
 	srv := mcpserver.New(client, Version)

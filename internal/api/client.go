@@ -24,8 +24,18 @@ type Client struct {
 	BaseURL string
 	Token   string
 
+	// Kind is what this process is — "cli" (default) or "mcp" — declared to
+	// the server as X-PGRun-Client so the account's Usage page can say which
+	// surface created which branches. Labeling only: the server records an
+	// undeclared caller as "api" and never guesses.
+	Kind string
+
 	httpClient *http.Client // nil uses the package default
 }
+
+// Version is the pgrun-cli version the headers carry; the cli package sets it
+// from its own build-time Version at startup.
+var Version = "dev"
 
 // New builds a Client. baseURL and token are used as given — trimming and
 // validation happen at call sites (config), not here.
@@ -314,6 +324,12 @@ func (c *Client) do(ctx context.Context, method, path string, body any, want int
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	kind := c.Kind
+	if kind == "" {
+		kind = "cli"
+	}
+	req.Header.Set("User-Agent", "pgrun-cli/"+Version)
+	req.Header.Set("X-PGRun-Client", kind+"/"+Version)
 
 	resp, err := c.client().Do(req)
 	if err != nil {
