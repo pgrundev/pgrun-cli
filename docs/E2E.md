@@ -12,16 +12,16 @@ main     ready   yes   -         17       2026-08-27T01:14:19Z  -
 new-123  ready   -     branch_1  17       2026-08-27T01:41:05Z  -
 
 $ pgrun branch create demo-app --name e2e-kit --ttl 1h --wait
-DATABASE_URL=postgres://branch_e2e_kit:<redacted>@127.0.0.1:6001/postgres
+DATABASE_URL=postgresql://branch_e2e_kit:<redacted>@br-<ref>.us.db.pgrun.dev:5432/postgres?sslmode=require
 (exit 0)
 
 $ pgrun branch url demo-app e2e-kit
-DATABASE_URL=postgres://branch_e2e_kit:<redacted>@127.0.0.1:6001/postgres
+DATABASE_URL=postgresql://branch_e2e_kit:<redacted>@br-<ref>.us.db.pgrun.dev:5432/postgres?sslmode=require
 
 $ pgrun branch get demo-app e2e-kit --json
 {"id":"branch_5","name":"e2e-kit","status":"ready","is_base":false,"parent_branch_id":"branch_1",
  "postgres_version":"17","created_at":"2026-08-29T23:40:15Z","expires_at":"2026-08-30T00:40:15Z",
- "connection_url":"postgres://branch_e2e_kit:<redacted>@127.0.0.1:6001/postgres"}
+ "connection_url":"postgresql://branch_e2e_kit:<redacted>@br-<ref>.us.db.pgrun.dev:5432/postgres?sslmode=require"}
 
 $ pgrun branch delete demo-app e2e-kit
 branch e2e-kit: deleting

@@ -108,6 +108,14 @@ create --wait`'s ready response additionally carries a `database_url`
 field) — parse that, not the human-readable text, which isn't a stable
 format.
 
+The connection string is a TLS endpoint on a stable per-branch hostname
+(`br-<ref>.us.db.pgrun.dev:5432`) and already carries `sslmode=require`. Treat it
+as opaque: pass it through verbatim, never rewrite the host, port or sslmode, and
+never expect a raw IP address. TLS is mandatory and an unencrypted connection is
+refused. `channel_binding=require` is not supported, because the gateway
+terminates TLS and the branch therefore never offers channel binding; ordinary
+SCRAM authentication is unaffected.
+
 A connection string is printed/exported in exactly three places:
 `branch create --wait` on ready (`DATABASE_URL=...` in human mode,
 `database_url` in `--json`), `branch url` (`DATABASE_URL=...`), and

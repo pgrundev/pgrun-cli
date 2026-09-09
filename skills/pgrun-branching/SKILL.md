@@ -68,6 +68,11 @@ normally — the rest of this skill applies unchanged.
      — waits for ready, and the JSON includes `database_url` directly (no
      second call needed).
    - or reuse one you already created: `pgrun branch env <project> <name>`.
+> The URL is a TLS endpoint on a per-branch hostname and already contains
+> `sslmode=require`. Use it exactly as given — do not rewrite the host, the port
+> or the sslmode, and do not expect an IP address. An unencrypted connection is
+> refused. `channel_binding=require` is not supported.
+
 3. **Get `DATABASE_URL`.** From step 2's JSON (`database_url`), or:
    ```sh
    eval "$(pgrun branch env <project> <task-slug>)"   # exports DATABASE_URL
