@@ -166,6 +166,47 @@ it by hand, poll every ~2s with a ~300s timeout.
 - Run destructive work (migrations, `DROP`, load tests) against a production DSN.
 - Ask the user to paste a token into the chat — `pgrun auth login` exists for that.
 
+## Running a test suite against a branch
+
+A branch carries REAL data. Most test suites assume an empty, disposable
+database and will destroy that data before a single migration is tested. Three
+specific hazards, all observed on a real run:
+
+- **`fixtures :all` truncates every fixture table first.** On one app that was
+  ~18,500 real rows, and because branch roles are SUPERUSER the truncate is not
+  even stopped by foreign keys. The surviving non-fixture tables are then
+  orphaned and every test errors on FK violations. This is Rails behaving
+  normally, not a pgrun defect.
+- **`maintain_test_schema!` purges and reloads the schema** when
+  `schema_migrations` looks stale. That is what destroys a branch outright. Set
+  `config.active_record.maintain_test_schema = false` for the run.
+- **Parallel testing creates EXTRA databases on the branch instance.**
+  `parallelize(workers: :number_of_processors)` makes `<db>-0`, `<db>-1`, … and
+  loads `schema.rb` into each. Run with `PARALLEL_WORKERS=1`.
+
+So: a branch is excellent for **migrations, console work, and querying real
+data**. A fixture-based suite is a different job. If you must run one, say so
+plainly first and let the user choose, because the data goes either way.
+
+**If a migration fails, never "repair" it by loading the schema.**
+`db:schema:load`, `db:reset`, `db:setup`, `db:prepare` and `db:test:prepare`
+all purge the branch. An empty `schema_migrations` means the branch is faulty —
+report it and create a new branch. Do not stamp it and do not reload it.
+
+## Getting the URL into a variable
+
+`branch url` prints `DATABASE_URL=<url>`, not a bare URL, so strip the prefix
+or use the JSON form:
+
+```bash
+U="$(pgrun branch url <project> <branch>)"; U="${U#DATABASE_URL=}"
+# or
+U="$(pgrun branch env <project> <branch> --format=json | jq -r .database_url)"
+```
+
+Prefer `pgrun branch exec` where it fits — it puts `DATABASE_URL` straight into
+the child process and never prints it.
+
 ## Cleanup rules
 
 - **Always set a TTL** (`1h`/`6h`/`24h`/`7d`) so a crashed or forgotten agent

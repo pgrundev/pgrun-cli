@@ -116,6 +116,15 @@ refused. `channel_binding=require` is not supported, because the gateway
 terminates TLS and the branch therefore never offers channel binding; ordinary
 SCRAM authentication is unaffected.
 
+`branch url` and `branch create --wait` print `DATABASE_URL=<url>`, not a bare
+URL. To capture just the value, strip the prefix or use
+`branch env --format=json`.
+
+Before running a TEST SUITE against a branch, read the "Running a test suite
+against a branch" section of the pgrun-branching skill. Fixtures truncate real
+data, parallel testing creates extra databases on the branch instance, and
+maintain_test_schema! purges the branch outright.
+
 A connection string is printed/exported in exactly three places:
 `branch create --wait` on ready (`DATABASE_URL=...` in human mode,
 `database_url` in `--json`), `branch url` (`DATABASE_URL=...`), and
