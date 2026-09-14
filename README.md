@@ -8,9 +8,8 @@ A branch is a real, connectable Postgres: copy-on-write off a project's base
 branch, ready in about the time a normal database takes to boot, gone the
 moment you delete it or its TTL expires.
 
-> **Status:** built, not yet released. `.goreleaser.yaml`/`Makefile`/npm
-> packaging are checked in but publishing is deferred — see
-> [Install](#install).
+Full guide — Safe Copy setup, connecting, limits, CI, troubleshooting:
+[pgrun.dev/docs/branches](https://pgrun.dev/docs/branches).
 
 ## Quickstart
 
