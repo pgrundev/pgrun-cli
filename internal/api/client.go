@@ -306,24 +306,41 @@ func branchPath(project, name string) string {
 // otherwise) alongside the raw body, so callers can still surface it via
 // --json. raw is nil only when no response was ever received.
 func (c *Client) do(ctx context.Context, method, path string, body any, want int) ([]byte, error) {
+	status, raw, err := c.send(ctx, method, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if status == want {
+		return raw, nil
+	}
+	return raw, newAPIError(status, raw)
+}
+
+// send performs one round trip and returns the status and raw body whatever
+// the status — for endpoints (the device login poll) whose answer is carried
+// by several statuses. The Authorization header is sent only when the
+// client has a token: the device login endpoints run before one exists.
+func (c *Client) send(ctx context.Context, method, path string, body any) (int, []byte, error) {
 	var reqBody io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("encode request: %w", err)
+			return 0, nil, fmt.Errorf("encode request: %w", err)
 		}
 		reqBody = bytes.NewReader(encoded)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, joinURL(c.BaseURL, path), reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return 0, nil, fmt.Errorf("build request: %w", err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	kind := c.Kind
 	if kind == "" {
 		kind = "cli"
@@ -333,19 +350,15 @@ func (c *Client) do(ctx context.Context, method, path string, body any, want int
 
 	resp, err := c.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return 0, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return 0, nil, fmt.Errorf("read response: %w", err)
 	}
-
-	if resp.StatusCode == want {
-		return raw, nil
-	}
-	return raw, newAPIError(resp.StatusCode, raw)
+	return resp.StatusCode, raw, nil
 }
 
 // newAPIError decodes {"error": "..."} from an error body, falling back to
