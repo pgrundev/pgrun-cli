@@ -16,7 +16,7 @@ Full guide — Safe Copy setup, connecting, limits, CI, troubleshooting:
 The agent-first path — three commands, then hand the work to Claude Code:
 
 ```sh
-pgrun auth login       # interactive: prompts for URL + token, verifies, saves
+pgrun auth login       # interactive: links to the Tokens page, prompts for the token, verifies, saves
 pgrun skill install    # installs the pgrun-branching skill into ~/.claude/skills
 claude                 # then: "Add an index to users.email and test it on a pgrun branch"
 ```
@@ -28,7 +28,7 @@ Claude does the branching; you never create a branch by hand.
 Prefer the CLI directly?
 
 ```sh
-pgrun auth login    # interactive: prompts for URL + token, verifies, saves
+pgrun auth login    # interactive: links to the Tokens page, prompts for the token, verifies, saves
 
 pgrun branch create myproject --name scratch --ttl 1h --wait
 # DATABASE_URL=postgres://... on stdout, only on ready (exit 0)
@@ -97,11 +97,11 @@ but gated behind tap/npm credentials — curl|sh is the supported beta path.)
 
 ## Auth
 
-`pgrun auth login` is the everyday path — an interactive prompt for the API
-URL (pre-filled from whatever's already configured, or pgrun's built-in
-default) and a token, read with terminal echo off and verified against the
-API before it's saved. It also prints the dashboard's Tokens page URL, so
-that's where the token itself comes from. `pgrun auth logout` clears the
+`pgrun auth login` is the everyday path — it prints a direct link to the
+dashboard's Tokens page (`https://app.pgrun.dev/accounts/default/tokens`),
+then asks for one thing: the token, read with terminal echo off and verified
+against the API before it's saved. It never asks for an API URL: `--url`,
+then `PGRUN_API_URL`, then the saved config, then `https://app.pgrun.dev`. `pgrun auth logout` clears the
 saved config. `pgrun auth status` prints the URL and a 6-character token
 fingerprint — never the token.
 
@@ -131,7 +131,7 @@ production connection URL. See [Sources](#sources).
 | `pgrun branch exec <project> <name> -- <command...>` | Run `<command>` with `DATABASE_URL` set in its environment (never on argv, never in a file); exits with the command's own exit code. |
 | `pgrun branch exec <project> --create <newname> [--ttl ...] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>` | Create a fresh branch, wait for it, run the command, and (`--delete-after`) delete it afterward — even if the command fails. |
 | `pgrun branch delete <project> <name> [--json]` | `202` → deleting (exit 0); `409` on the base branch or a branch with children (exit 1). |
-| `pgrun auth login` | Interactive: prompt for URL + token, verify, save. |
+| `pgrun auth login [--url <URL>]` | Interactive: link to the Tokens page, prompt for the token, verify, save. |
 | `pgrun auth logout` | Remove the saved config. |
 | `pgrun auth set --token <t> [--url <u>]` | Advanced/CI: write the config file directly, no prompt. |
 | `pgrun auth status` | Print URL + token fingerprint. |

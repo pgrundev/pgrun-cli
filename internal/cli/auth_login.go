@@ -17,8 +17,11 @@ import (
 )
 
 // authLogin implements `pgrun auth login`: a friendly interactive prompt for
-// the two things `pgrun auth set` expects on the command line, verified
-// against the real API before anything is saved. It is the everyday path;
+// the token `pgrun auth set` expects on the command line, verified against
+// the real API before anything is saved. It never asks for the API URL (a
+// first-time user could not know what to answer): --url, then
+// PGRUN_API_URL, then the saved config, then config.DefaultURL — the same
+// precedence every other command resolves with. It is the everyday path;
 // `pgrun auth set --token` remains the advanced/scriptable/CI path (it never
 // touches a terminal and never makes a network call before saving).
 //
@@ -29,6 +32,7 @@ import (
 func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	urlFlag := fs.String("url", "", "API URL (default: PGRUN_API_URL, the saved config, or "+config.DefaultURL+")")
 	if ok, code := parseOrExit(fs, args); !ok {
 		return code
 	}
@@ -41,30 +45,23 @@ func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "pgrun: %v\n", err)
 		return exitFailure
 	}
-	existing, err := config.Load(path)
+	resolved, err := config.Resolve(*urlFlag, "")
 	if err != nil {
 		fmt.Fprintf(stderr, "pgrun: %v\n", err)
 		return exitFailure
 	}
+	url := strings.TrimRight(resolved.URL, "/")
+	if url == "" {
+		url = config.DefaultURL
+	}
 
 	fmt.Fprintln(stdout, "pgrun auth login")
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "  1. Open %s/accounts/default/tokens (sign in if asked)\n", url)
+	fmt.Fprintln(stdout, "  2. Click \"New token\" and copy it")
+	fmt.Fprintln(stdout, "  3. Paste it below")
+	fmt.Fprintln(stdout)
 	br := bufio.NewReader(stdin)
-
-	defaultURL := existing.URL
-	if defaultURL == "" {
-		defaultURL = config.DefaultURL
-	}
-	url, err := promptLine(br, stdout, "API URL", defaultURL)
-	if err != nil {
-		fmt.Fprintf(stderr, "pgrun: reading API URL: %v\n", err)
-		return exitFailure
-	}
-	if url == "" {
-		fmt.Fprintln(stderr, "pgrun: an API URL is required")
-		return exitFailure
-	}
-
-	fmt.Fprintf(stdout, "\nGet a token from the dashboard's Tokens page: %s (sign in, then your account -> Tokens)\n", strings.TrimRight(url, "/"))
 	token, err := readToken(br, stdin, stdout, stderr, "Token (input hidden): ")
 	if err != nil {
 		fmt.Fprintf(stderr, "pgrun: reading token: %v\n", err)
@@ -130,26 +127,6 @@ func authLogout(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "logged out — removed %s\n", path)
 	return exitSuccess
-}
-
-// promptLine prints "label [def]: " (or "label: " when def is empty), reads
-// one line, and returns def when the line is blank — the standard
-// press-enter-to-accept-the-default prompt shape.
-func promptLine(br *bufio.Reader, out io.Writer, label, def string) (string, error) {
-	if def != "" {
-		fmt.Fprintf(out, "%s [%s]: ", label, def)
-	} else {
-		fmt.Fprintf(out, "%s: ", label)
-	}
-	line, err := br.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return def, nil
-	}
-	return line, nil
 }
 
 // readToken prints prompt, then reads one line as the token. When stdin is

@@ -18,8 +18,7 @@ type Config struct {
 }
 
 // DefaultURL is pgrun's built-in default API/dashboard host. `pgrun auth
-// login` pre-fills its URL prompt with this when nothing is configured yet
-// (an existing config file's URL, if any, takes priority over it).
+// login` uses it when no --url, PGRUN_API_URL or saved config URL is set.
 const DefaultURL = "https://app.pgrun.dev"
 
 // Path returns the fixed config file location, ~/.config/pgrun/config.json.

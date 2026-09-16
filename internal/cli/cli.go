@@ -45,7 +45,7 @@ Usage:
   pgrun projects list [--json]                    (alias: pgrun project list, and bare "pgrun project"/"pgrun projects")
   pgrun project use <slug> [--no-verify] [--url --token]
   pgrun project show
-  pgrun auth login
+  pgrun auth login [--url <url>]                  (prints the Tokens page link, then asks only for the token)
   pgrun auth logout
   pgrun auth set --token <token> [--url <url>]    (advanced/CI — see PGRUN_API_TOKEN/PGRUN_API_URL below)
   pgrun auth status

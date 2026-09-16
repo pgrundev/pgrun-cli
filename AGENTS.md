@@ -37,7 +37,7 @@ The intended day-one UX, once release scaffolding is live:
 
 ```sh
 brew install pgrundev/tap/pgrun
-pgrun auth login          # interactive: prompts for URL + token, verifies, saves
+pgrun auth login          # interactive: links to the Tokens page, prompts for the token, verifies, saves
 pgrun skill install       # installs the pgrun-branching skill into ~/.claude/skills
 claude                    # "Add this migration and test it." — Claude branches, migrates, tests, cleans up
 ```
@@ -49,12 +49,12 @@ claude                    # "Add this migration and test it." — Claude branche
 
 ## Auth
 
-**`pgrun auth login`** is the everyday path: an interactive prompt for the
-API URL (defaulting to whatever's already configured, or pgrun's built-in
-default) and a token, read with terminal echo off, verified against the API
-before anything is saved, and confirmed by printing the token's fingerprint
-only. Get the token itself from the dashboard's Tokens page — `auth login`
-prints that URL as part of the prompt.
+**`pgrun auth login`** is the everyday path: it prints a direct link to the
+dashboard's Tokens page (`<url>/accounts/default/tokens`) and asks only for
+the token, read with terminal echo off, verified against the API before
+anything is saved, and confirmed by printing the token's fingerprint only.
+It never prompts for the API URL — `--url`, then `PGRUN_API_URL`, then the
+saved config, then pgrun's built-in default (`https://app.pgrun.dev`).
 
 ```sh
 pgrun auth login

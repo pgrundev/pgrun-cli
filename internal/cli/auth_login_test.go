@@ -44,10 +44,12 @@ func TestAuthLogin_HappyPath(t *testing.T) {
 		w.Write([]byte(`{"error":"project not found"}`))
 	})
 
-	stdin := srv.URL + "\nmy-token-123\n"
-	code, out, stderr := runLogin(t, stdin)
+	code, out, stderr := runLogin(t, "my-token-123\n", "--url", srv.URL)
 	if code != exitSuccess {
 		t.Fatalf("code = %d, stderr=%q", code, stderr)
+	}
+	if strings.Contains(out, "API URL") {
+		t.Fatalf("login must not ask for an API URL: %q", out)
 	}
 	if gotAuth != "Bearer my-token-123" {
 		t.Fatalf("verify call Authorization = %q", gotAuth)
@@ -58,8 +60,8 @@ func TestAuthLogin_HappyPath(t *testing.T) {
 	if !strings.Contains(out, "my-tok…") {
 		t.Fatalf("stdout missing the token fingerprint: %q", out)
 	}
-	if !strings.Contains(out, srv.URL) {
-		t.Fatalf("stdout should mention the dashboard/tokens URL: %q", out)
+	if !strings.Contains(out, srv.URL+"/accounts/default/tokens") {
+		t.Fatalf("stdout should link straight to the Tokens page: %q", out)
 	}
 
 	path := filepath.Join(dir, ".config", "pgrun", "config.json")
@@ -87,8 +89,7 @@ func TestAuthLogin_BadToken_NotSaved(t *testing.T) {
 		w.Write([]byte(`{"error":"invalid token"}`))
 	})
 
-	stdin := srv.URL + "\nbad-token\n"
-	code, out, stderr := runLogin(t, stdin)
+	code, out, stderr := runLogin(t, "bad-token\n", "--url", srv.URL)
 	if code != exitAuth {
 		t.Fatalf("code = %d, want %d (stderr=%q)", code, exitAuth, stderr)
 	}
@@ -105,19 +106,15 @@ func TestAuthLogin_BadToken_NotSaved(t *testing.T) {
 	}
 }
 
-// TestAuthLogin_DefaultURL_PrefillsFromExistingConfig covers the "default
-// the existing built-in/config default" URL-prompt behavior: an already
-// logged-in URL is offered as the default (pressing enter accepts it),
-// while a brand-new install falls back to config.DefaultURL.
-func TestAuthLogin_DefaultURL_PrefillsFromExistingConfig(t *testing.T) {
+// TestAuthLogin_UsesExistingConfigURL_WithoutAsking: an already logged-in
+// URL is reused as-is — the only thing login asks for is the token.
+func TestAuthLogin_UsesExistingConfigURL_WithoutAsking(t *testing.T) {
 	isolateHome(t)
 	srv := newVerifyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(`{"error":"not found"}`))
 	})
 
-	// Seed an existing config with this URL, then press enter (blank line)
-	// at the URL prompt to accept the default.
 	path, err := config.Path()
 	if err != nil {
 		t.Fatalf("config.Path: %v", err)
@@ -126,12 +123,15 @@ func TestAuthLogin_DefaultURL_PrefillsFromExistingConfig(t *testing.T) {
 		t.Fatalf("seeding config: %v", err)
 	}
 
-	code, out, stderr := runLogin(t, "\nnew-token\n")
+	code, out, stderr := runLogin(t, "new-token\n")
 	if code != exitSuccess {
 		t.Fatalf("code = %d, stderr=%q", code, stderr)
 	}
-	if !strings.Contains(out, srv.URL) {
-		t.Fatalf("prompt should show the existing URL as the default: %q", out)
+	if strings.Contains(out, "API URL") {
+		t.Fatalf("login must not ask for an API URL: %q", out)
+	}
+	if !strings.Contains(out, srv.URL+"/accounts/default/tokens") {
+		t.Fatalf("the Tokens link should use the configured URL: %q", out)
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -142,9 +142,54 @@ func TestAuthLogin_DefaultURL_PrefillsFromExistingConfig(t *testing.T) {
 	}
 }
 
+// A fresh install goes straight to the token: pgrun's own URL, a direct
+// link to the Tokens page, and the three steps — no URL prompt to confuse.
+func TestAuthLogin_FreshInstall_GoesStraightToTheToken(t *testing.T) {
+	isolateHome(t)
+	code, out, stderr := runLogin(t, "\n") // empty token: stops before any network call
+	if code != exitFailure {
+		t.Fatalf("code = %d, want %d (stderr=%q)", code, exitFailure, stderr)
+	}
+	if strings.Contains(out, "API URL") {
+		t.Fatalf("login must not ask for an API URL: %q", out)
+	}
+	for _, want := range []string{
+		config.DefaultURL + "/accounts/default/tokens",
+		"New token",
+		"Token (input hidden): ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q: %q", want, out)
+		}
+	}
+}
+
+// PGRUN_API_URL wins over the saved config, and --url over both — the same
+// precedence every other command resolves with.
+func TestAuthLogin_URLPrecedence_FlagThenEnvThenConfig(t *testing.T) {
+	isolateHome(t)
+	path, err := config.Path()
+	if err != nil {
+		t.Fatalf("config.Path: %v", err)
+	}
+	if err := config.Save(path, config.Config{URL: "https://config.example.test"}); err != nil {
+		t.Fatalf("seeding config: %v", err)
+	}
+	t.Setenv("PGRUN_API_URL", "https://env.example.test")
+
+	_, out, _ := runLogin(t, "\n")
+	if !strings.Contains(out, "https://env.example.test/accounts/default/tokens") {
+		t.Fatalf("env should win over config: %q", out)
+	}
+	_, out, _ = runLogin(t, "\n", "--url", "https://flag.example.test/")
+	if !strings.Contains(out, "https://flag.example.test/accounts/default/tokens") {
+		t.Fatalf("--url should win over env: %q", out)
+	}
+}
+
 func TestAuthLogin_EmptyTokenFails(t *testing.T) {
 	isolateHome(t)
-	code, _, stderr := runLogin(t, "https://api.example.com\n\n")
+	code, _, stderr := runLogin(t, "\n", "--url", "https://api.example.com")
 	if code != exitFailure {
 		t.Fatalf("code = %d, want %d", code, exitFailure)
 	}
