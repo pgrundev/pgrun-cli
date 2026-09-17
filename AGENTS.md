@@ -37,7 +37,7 @@ The intended day-one UX, once release scaffolding is live:
 
 ```sh
 brew install pgrundev/tap/pgrun
-pgrun auth login          # interactive: links to the Tokens page, prompts for the token, verifies, saves
+pgrun auth login          # opens your browser to authorize; --paste to paste a token instead
 pgrun skill install       # installs the pgrun-branching skill into ~/.claude/skills
 claude                    # "Add this migration and test it." — Claude branches, migrates, tests, cleans up
 ```
@@ -49,16 +49,23 @@ claude                    # "Add this migration and test it." — Claude branche
 
 ## Auth
 
-**`pgrun auth login`** is the everyday path: it prints a direct link to the
-dashboard's Tokens page (`<url>/accounts/default/tokens`) and asks only for
-the token, read with terminal echo off, verified against the API before
-anything is saved, and confirmed by printing the token's fingerprint only.
-It never prompts for the API URL — `--url`, then `PGRUN_API_URL`, then the
-saved config, then pgrun's built-in default (`https://app.pgrun.dev`).
+**`pgrun auth login`** is the everyday path: it opens the browser to
+`app.pgrun.dev`, the person clicks **Authorize**, and the CLI receives a
+token minted just for it (named "pgrun CLI on `<hostname>`", revocable any
+time from the Tokens page) — it's never shown to them, and confirmed only by
+printing the account it logged into. Over SSH, or with `--no-browser`, it
+prints a URL and code to open on any device instead. It never prompts for
+the API URL — `--url`, then `PGRUN_API_URL`, then the saved config, then
+pgrun's built-in default (`https://app.pgrun.dev`).
 
 ```sh
 pgrun auth login
 ```
+
+`--paste` keeps the older flow for machines with no browser anywhere: a
+direct link to the dashboard's Tokens page (`<url>/accounts/default/tokens`),
+read with terminal echo off, verified against the API before anything is
+saved.
 
 `pgrun auth logout` removes the saved config (exit 0 even if you were
 already logged out). `pgrun auth status` prints the configured URL and a
@@ -265,9 +272,8 @@ stack trace, never the token.
    it directly.
 6. **Never ask a human to paste an API token into a chat/task session.** If
    `pgrun auth status` reports not configured, tell them to run
-   `pgrun auth login` themselves — it reads the token with terminal echo
-   off and verifies it before saving, so it never has to pass through you
-   or end up in a transcript.
+   `pgrun auth login` themselves — it opens their browser, they click
+   Authorize, and the token never appears anywhere they could paste it.
 7. **Inject `DATABASE_URL` via the environment only.** Never write a
    branch's credentials into `config/database.yml`, `.env`, `.env.local`,
    or any other project file, and never commit them anywhere. `branch env`

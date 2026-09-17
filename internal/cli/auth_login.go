@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -16,23 +17,28 @@ import (
 	"github.com/pgrundev/pgrun-cli/internal/config"
 )
 
-// authLogin implements `pgrun auth login`: a friendly interactive prompt for
-// the token `pgrun auth set` expects on the command line, verified against
-// the real API before anything is saved. It never asks for the API URL (a
-// first-time user could not know what to answer): --url, then
-// PGRUN_API_URL, then the saved config, then config.DefaultURL — the same
-// precedence every other command resolves with. It is the everyday path;
-// `pgrun auth set --token` remains the advanced/scriptable/CI path (it never
-// touches a terminal and never makes a network call before saving).
-//
-// stdin is a parameter (not read from os.Stdin directly) so tests can drive
-// the whole flow with a plain io.Reader instead of a real TTY — see
-// readToken for how that also decides whether to attempt to disable
-// terminal echo.
+// exitCancelled is the conventional exit status for SIGINT.
+const exitCancelled = 130
+
+// authLogin implements `pgrun auth login`. The default is the device flow
+// (docs/specs/cli-browser-auth.md in the Rails repo): start a login request,
+// open the browser (or print the URL and code), poll until the person
+// authorizes, then verify and save the token the server minted — the person
+// never sees it. `--paste` keeps the older flow (link to the Tokens page,
+// paste a token) for machines with no browser anywhere; CI never gets here —
+// it sets PGRUN_API_TOKEN or runs `pgrun auth set --token`.
 func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return runAuthLogin(ctx, args, stdin, stdout, stderr, defaultLoginEnv())
+}
+
+func runAuthLogin(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, env loginEnv) int {
 	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	urlFlag := fs.String("url", "", "API URL (default: PGRUN_API_URL, the saved config, or "+config.DefaultURL+")")
+	paste := fs.Bool("paste", false, "paste a token from the Tokens page instead of authorizing in a browser")
+	noBrowser := fs.Bool("no-browser", false, "don't open a browser; print the URL and code to open on any device")
 	if ok, code := parseOrExit(fs, args); !ok {
 		return code
 	}
@@ -55,6 +61,136 @@ func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		url = config.DefaultURL
 	}
 
+	if *paste {
+		return pasteLogin(ctx, url, path, stdin, stdout, stderr)
+	}
+	if env.ci {
+		fmt.Fprintln(stderr, "pgrun: auth login waits for a person to authorize in a browser, which CI can't do —")
+		fmt.Fprintln(stderr, "       set PGRUN_API_TOKEN (and PGRUN_API_URL), or run `pgrun auth set --token <TOKEN>`")
+		return exitAuth
+	}
+	return deviceLogin(ctx, url, path, !*noBrowser && env.canOpenBrowser, stdout, stderr, env)
+}
+
+func deviceLogin(ctx context.Context, url, path string, tryBrowser bool, stdout, stderr io.Writer, env loginEnv) int {
+	client := api.New(url, "")
+	auth, err := client.StartDeviceAuthorization(ctx, deviceName(env.hostname))
+	if err != nil {
+		if ctx.Err() != nil {
+			return cancelled(stderr)
+		}
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 429 {
+			fmt.Fprintf(stderr, "pgrun: %s\n", apiErr.Message)
+		} else {
+			fmt.Fprintf(stderr, "pgrun: could not start login: %v\n", err)
+		}
+		return exitFailure
+	}
+
+	openURL := auth.VerificationURIComplete
+	if openURL == "" {
+		openURL = auth.VerificationURI
+	}
+	if tryBrowser {
+		fmt.Fprintf(stdout, "Opening browser to authenticate (code %s)...\n", auth.UserCode)
+		if env.openBrowser(openURL) != nil {
+			fmt.Fprintf(stdout, "Could not open your browser.\n\nOpen:\n%s\n\nCode:\n%s\n\n", auth.VerificationURI, auth.UserCode)
+		}
+	} else {
+		fmt.Fprintf(stdout, "Open this on any device to authenticate:\n\nOpen:\n%s\n\nCode:\n%s\n\n", auth.VerificationURI, auth.UserCode)
+	}
+
+	fmt.Fprint(stdout, "Waiting for authorization... ")
+	interval := time.Duration(auth.Interval) * time.Second
+	if interval < time.Second {
+		interval = 5 * time.Second
+	}
+	expiresIn := time.Duration(auth.ExpiresIn) * time.Second
+	if expiresIn <= 0 {
+		expiresIn = 10 * time.Minute
+	}
+	deadline := env.now().Add(expiresIn)
+
+	var tok api.DeviceToken
+poll:
+	for {
+		if err := env.sleep(ctx, interval); err != nil {
+			fmt.Fprintln(stdout)
+			return cancelled(stderr)
+		}
+		if env.now().After(deadline) {
+			return pollFailed(stdout, stderr, exitFailure, "the login code expired — run `pgrun auth login` again")
+		}
+		tok, err = client.PollDeviceToken(ctx, auth.DeviceCode)
+		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintln(stdout)
+				return cancelled(stderr)
+			}
+			if errors.Is(err, api.ErrMalformedDeviceResponse) {
+				return pollFailed(stdout, stderr, exitFailure, "malformed response from the login API")
+			}
+			continue // network blip or 5xx: keep polling until the deadline
+		}
+		switch tok.Status {
+		case api.DeviceStatusPending:
+			continue
+		case api.DeviceStatusSlowDown:
+			interval += 5 * time.Second
+			continue
+		case api.DeviceStatusAuthorized:
+			break poll
+		case api.DeviceStatusDenied:
+			return pollFailed(stdout, stderr, exitAuth, "login was denied in the browser")
+		case api.DeviceStatusExpired:
+			return pollFailed(stdout, stderr, exitFailure, "the login code expired — run `pgrun auth login` again")
+		case api.DeviceStatusConsumed:
+			return pollFailed(stdout, stderr, exitFailure, "this login was already used — run `pgrun auth login` again")
+		case api.DeviceStatusInvalid:
+			return pollFailed(stdout, stderr, exitFailure, "the login request was not recognized — run `pgrun auth login` again")
+		}
+	}
+	fmt.Fprintln(stdout, "✓")
+
+	verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := api.New(url, tok.Token).VerifyToken(verifyCtx); err != nil {
+		fmt.Fprintf(stderr, "pgrun: the new token could not be verified: %v\n", err)
+		return exitFailure
+	}
+	if err := config.Save(path, config.Config{URL: url, Token: tok.Token}); err != nil {
+		fmt.Fprintf(stderr, "pgrun: %v\n", err)
+		return exitFailure
+	}
+	fmt.Fprintf(stdout, "\nLogged in as %s\nAccount: %s (%s)\n", tok.User.Email, tok.Account.Name, tok.Account.Slug)
+	return exitSuccess
+}
+
+func pollFailed(stdout, stderr io.Writer, code int, msg string) int {
+	fmt.Fprintln(stdout, "✗")
+	fmt.Fprintf(stderr, "pgrun: %s\n", msg)
+	return code
+}
+
+func cancelled(stderr io.Writer) int {
+	fmt.Fprintln(stderr, "Authentication cancelled.")
+	return exitCancelled
+}
+
+// deviceName is what the Tokens page will call this machine.
+func deviceName(hostname func() (string, error)) string {
+	name, err := hostname()
+	name = strings.TrimSpace(name)
+	if err != nil || name == "" {
+		return "unknown device"
+	}
+	return name
+}
+
+// pasteLogin is the v0.2.2 flow: link to the Tokens page, read a pasted
+// token with echo off, verify, save.
+func pasteLogin(ctx context.Context, url, path string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "pgrun auth login")
 	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "  1. Open %s/accounts/default/tokens (sign in if asked)\n", url)
@@ -73,12 +209,12 @@ func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintln(stdout, "verifying token...")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if err := api.New(url, token).VerifyToken(ctx); err != nil {
+	if err := api.New(url, token).VerifyToken(verifyCtx); err != nil {
 		var authErr *api.AuthError
 		if errors.As(err, &authErr) {
-			fmt.Fprintln(stderr, "pgrun: that token was rejected — check it and run `pgrun auth login` again")
+			fmt.Fprintln(stderr, "pgrun: that token was rejected — check it and run `pgrun auth login --paste` again")
 			return exitAuth
 		}
 		fmt.Fprintf(stderr, "pgrun: could not verify token: %v\n", err)

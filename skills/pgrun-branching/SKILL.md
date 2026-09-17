@@ -57,12 +57,12 @@ normally — the rest of this skill applies unchanged.
 0. **Decide the task actually needs a database** (see "When to use this").
    If it doesn't, don't branch.
 1. **Check auth.** `pgrun auth status`. If it reports not configured (exit
-   code 2), **tell the user to run `pgrun auth login` themselves** — it's an
-   interactive prompt that reads their token with echo off and verifies it
-   before saving. **Never ask the user to paste a token into the chat**; a
-   token pasted into a conversation is a token that ends up somewhere it
-   shouldn't (logs, chat history, a shared session). `pgrun auth login`
-   exists specifically so that never has to happen.
+   code 2), **tell the user to run `pgrun auth login` themselves** — it
+   opens their browser, they click Authorize, and the token never appears
+   anywhere they could paste it. **Never ask the user to paste a token into
+   the chat**; a token pasted into a conversation is a token that ends up
+   somewhere it shouldn't (logs, chat history, a shared session). `pgrun
+   auth login` exists specifically so that never has to happen.
 2. **Get a branch.** Either step, or the one-liner in "Simplest path" below:
    - `pgrun branch create <project> --name <task-slug> --ttl 1h --wait --json`
      — waits for ready, and the JSON includes `database_url` directly (no
