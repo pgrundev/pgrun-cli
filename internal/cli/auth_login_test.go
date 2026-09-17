@@ -78,10 +78,11 @@ const authorizedBody = `{"status":"authorized","token":"pgrun_devicetoken123","u
 // (recording the URL) unless openErr is set, sleeping is instant, and the
 // clock advances by the slept duration.
 type testEnv struct {
-	opened  []string
-	openErr error
-	clock   time.Time
-	slept   []time.Duration
+	opened         []string
+	openErr        error
+	clock          time.Time
+	slept          []time.Duration
+	interruptCalls int // how many times withInterrupt ran — must be 0 for --paste, at most 1 for the device flow
 }
 
 func (e *testEnv) env(canOpen, ci bool) loginEnv {
@@ -100,6 +101,13 @@ func (e *testEnv) env(canOpen, ci bool) loginEnv {
 			return nil
 		},
 		now: func() time.Time { return e.clock },
+		// A passthrough: tests drive cancellation themselves (see
+		// TestAuthLogin_Device_CtrlC_Cancels), so this only needs to record
+		// that the device flow — and only the device flow — asked for it.
+		withInterrupt: func(ctx context.Context) (context.Context, func()) {
+			e.interruptCalls++
+			return ctx, func() {}
+		},
 	}
 }
 
@@ -127,7 +135,10 @@ func TestAuthLogin_Device_HappyPath_OpensBrowserPollsSavesAndVerifies(t *testing
 	if !strings.Contains(api.deviceName, `"device_name":"alex-macbook"`) {
 		t.Fatalf("start body = %q", api.deviceName)
 	}
-	for _, want := range []string{"Opening browser to authenticate", "WDJB-MJHT", "Waiting for authorization... ✓", "Logged in as alex@example.com", "Account: Default (default-26)"} {
+	if te.interruptCalls != 1 {
+		t.Fatalf("the device flow must install interrupt handling exactly once: %d", te.interruptCalls)
+	}
+	for _, want := range []string{"Opening browser to authenticate", "WDJB-MJHT", "If it didn't open, visit: " + srv.URL + "/cli/auth?code=WDJB-MJHT", "Waiting for authorization... ✓", "Logged in as alex@example.com", "Account: Default (default-26)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q: %q", want, out)
 		}
@@ -240,6 +251,35 @@ func TestAuthLogin_Device_SlowDownAndTransientErrorsKeepPolling(t *testing.T) {
 	}
 	if len(te.slept) != 3 || te.slept[1] != 10*time.Second {
 		t.Fatalf("slow_down must add 5s to the interval; slept = %v", te.slept)
+	}
+}
+
+// R10: a 4xx outside the device-token contract (not one of
+// pending/authorized/denied/expired/consumed/invalid/slow_down) is not
+// transient — waiting out the 10-minute deadline won't fix a 422, so it
+// must end the poll loop on the first sighting instead of being retried and
+// eventually misreported as "expired".
+func TestAuthLogin_Device_Poll4xxOutsideContract_StopsImmediately(t *testing.T) {
+	dir := isolateHome(t)
+	api := &fakeLoginAPI{polls: [][2]any{{422, `{"error":"cli version too old"}`}}}
+	srv := newVerifyServer(t, api.handler(t))
+	api.startBody = startBody(srv.URL)
+	te := &testEnv{}
+	code, out, stderr := runDeviceLogin(t, context.Background(), te.env(true, false), "--url", srv.URL)
+	if code != exitFailure {
+		t.Fatalf("code = %d stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "cli version too old") || !strings.Contains(stderr, "422") {
+		t.Fatalf("stderr should name the message and status: %q", stderr)
+	}
+	if !strings.Contains(out, "✗") {
+		t.Fatalf("stdout should show the ✗ terminal marker: %q", out)
+	}
+	if api.pollCount != 1 {
+		t.Fatalf("must stop after the first unexpected status instead of retrying: %d polls", api.pollCount)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".config", "pgrun", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("nothing may be saved on failure (stat err = %v)", err)
 	}
 }
 
@@ -360,6 +400,28 @@ func runLogin(t *testing.T, stdin string, args ...string) (code int, stdout, std
 	te := &testEnv{}
 	code = runAuthLogin(context.Background(), append([]string{"--paste"}, args...), strings.NewReader(stdin), &outBuf, &errBuf, te.env(true, false))
 	return code, outBuf.String(), errBuf.String()
+}
+
+// --paste blocks in readToken's br.ReadString, which never looks at a
+// context, so it must never have interrupt handling installed on it: doing
+// so would disable the process's default "kill on Ctrl+C" behavior with
+// nothing in the blocking read to replace it, leaving Ctrl+C swallowed
+// until the next Enter (the bug this test guards against).
+func TestAuthLogin_Paste_NeverInstallsInterruptHandling(t *testing.T) {
+	isolateHome(t)
+	srv := newVerifyServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"project not found"}`))
+	})
+	var outBuf, errBuf bytes.Buffer
+	te := &testEnv{}
+	code := runAuthLogin(context.Background(), []string{"--paste", "--url", srv.URL}, strings.NewReader("tok\n"), &outBuf, &errBuf, te.env(true, false))
+	if code != exitSuccess {
+		t.Fatalf("code = %d stderr = %q", code, errBuf.String())
+	}
+	if te.interruptCalls != 0 {
+		t.Fatalf("--paste must not install interrupt handling: %d calls", te.interruptCalls)
+	}
 }
 
 func TestAuthLogin_Paste_HappyPath(t *testing.T) {

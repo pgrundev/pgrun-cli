@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
 	"time"
 
@@ -27,10 +26,16 @@ const exitCancelled = 130
 // never sees it. `--paste` keeps the older flow (link to the Tokens page,
 // paste a token) for machines with no browser anywhere; CI never gets here —
 // it sets PGRUN_API_TOKEN or runs `pgrun auth set --token`.
+//
+// No signal handling is installed here: it's the device flow's job alone
+// (see runAuthLogin/env.withInterrupt). `--paste` blocks in readToken's
+// br.ReadString, which never looks at a context, so intercepting SIGINT
+// this early would disable the process's default "kill on Ctrl+C" behavior
+// without anything to replace it — Ctrl+C would do nothing until the next
+// Enter. Passing plain context.Background() here keeps --paste exactly as
+// interruptible as v0.2.2.
 func authLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	return runAuthLogin(ctx, args, stdin, stdout, stderr, defaultLoginEnv())
+	return runAuthLogin(context.Background(), args, stdin, stdout, stderr, defaultLoginEnv())
 }
 
 func runAuthLogin(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, env loginEnv) int {
@@ -69,7 +74,13 @@ func runAuthLogin(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		fmt.Fprintln(stderr, "       set PGRUN_API_TOKEN (and PGRUN_API_URL), or run `pgrun auth set --token <TOKEN>`")
 		return exitAuth
 	}
-	return deviceLogin(ctx, url, path, !*noBrowser && env.canOpenBrowser, stdout, stderr, env)
+	// The interrupt-catching context is installed only for the device flow
+	// (which polls in a loop and can act on ctx.Done() between requests) —
+	// see the note on authLogin. env.withInterrupt is a no-op passthrough in
+	// tests, so runAuthLogin stays testable with an injected ctx.
+	deviceCtx, stop := env.withInterrupt(ctx)
+	defer stop()
+	return deviceLogin(deviceCtx, url, path, !*noBrowser && env.canOpenBrowser, stdout, stderr, env)
 }
 
 func deviceLogin(ctx context.Context, url, path string, tryBrowser bool, stdout, stderr io.Writer, env loginEnv) int {
@@ -94,6 +105,11 @@ func deviceLogin(ctx context.Context, url, path string, tryBrowser bool, stdout,
 	}
 	if tryBrowser {
 		fmt.Fprintf(stdout, "Opening browser to authenticate (code %s)...\n", auth.UserCode)
+		// cmd.Start() succeeding doesn't mean a browser actually showed up
+		// (e.g. xdg-open with no handler configured exits non-zero after
+		// Start has already returned nil) — always leave a copy-pasteable
+		// fallback, not just on a detected Start failure.
+		fmt.Fprintf(stdout, "If it didn't open, visit: %s\n", openURL)
 		if env.openBrowser(openURL) != nil {
 			fmt.Fprintf(stdout, "Could not open your browser.\n\nOpen:\n%s\n\nCode:\n%s\n\n", auth.VerificationURI, auth.UserCode)
 		}
@@ -131,7 +147,20 @@ poll:
 			if errors.Is(err, api.ErrMalformedDeviceResponse) {
 				return pollFailed(stdout, stderr, exitFailure, "malformed response from the login API")
 			}
-			continue // network blip or 5xx: keep polling until the deadline
+			// R10: only a transport failure (no HTTP response at all) or a
+			// 5xx is transient — retry those until the deadline. Any other
+			// *APIError (4xx outside the device-token contract: a bad
+			// request, a stale client, ...) is not going to fix itself by
+			// waiting, so it ends the loop now instead of being retried
+			// silently for up to 10 minutes and misreported as "expired".
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) {
+				if apiErr.StatusCode >= 500 {
+					continue
+				}
+				return pollFailed(stdout, stderr, exitFailure, fmt.Sprintf("login failed: %s (status %d)", apiErr.Message, apiErr.StatusCode))
+			}
+			continue // transport error (network blip): keep polling until the deadline
 		}
 		switch tok.Status {
 		case api.DeviceStatusPending:

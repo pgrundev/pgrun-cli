@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strings"
 	"time"
@@ -18,6 +19,11 @@ type loginEnv struct {
 	hostname       func() (string, error)
 	sleep          func(ctx context.Context, d time.Duration) error
 	now            func() time.Time
+	// withInterrupt installs Ctrl+C handling for the device flow's polling
+	// loop only — never for --paste, whose blocking token read can't act on
+	// a context (see auth_login.go's authLogin). Tests use a passthrough
+	// that returns ctx unchanged, since they drive cancellation directly.
+	withInterrupt func(ctx context.Context) (context.Context, func())
 }
 
 func defaultLoginEnv() loginEnv {
@@ -37,6 +43,9 @@ func defaultLoginEnv() loginEnv {
 			}
 		},
 		now: time.Now,
+		withInterrupt: func(ctx context.Context) (context.Context, func()) {
+			return signal.NotifyContext(ctx, os.Interrupt)
+		},
 	}
 }
 
