@@ -179,6 +179,52 @@ func TestAuthLogin_Device_BrowserOpenFails_PrintsURLAndCodeAndKeepsPolling(t *te
 	}
 }
 
+// R-safeurl: the server picks verification_uri_complete; a malicious or
+// buggy server could point it anywhere. openBrowser must never see anything
+// but an http(s) URL on the configured API's own host — everything else
+// falls back to the same "Open this on any device" print block used when
+// there's no browser to open at all, and the login must still complete.
+func TestAuthLogin_Device_RefusesToOpenNonHTTPScheme(t *testing.T) {
+	isolateHome(t)
+	api := &fakeLoginAPI{polls: [][2]any{{200, authorizedBody}}}
+	srv := newVerifyServer(t, api.handler(t))
+	api.startBody = `{"device_code":"dc-secret","user_code":"WDJB-MJHT","verification_uri":"` + srv.URL + `/cli/auth","verification_uri_complete":"file:///etc/passwd","expires_in":600,"interval":5}`
+	te := &testEnv{}
+
+	code, out, stderr := runDeviceLogin(t, context.Background(), te.env(true, false), "--url", srv.URL)
+	if code != exitSuccess {
+		t.Fatalf("code = %d stderr=%q out=%q", code, stderr, out)
+	}
+	if len(te.opened) != 0 {
+		t.Fatalf("must never hand a non-http(s) URL to the opener: %v", te.opened)
+	}
+	if !strings.Contains(out, "Open this on any device to authenticate:") || !strings.Contains(out, "Open:\n"+srv.URL+"/cli/auth\n") || !strings.Contains(out, "Code:\nWDJB-MJHT\n") {
+		t.Fatalf("stdout should fall back to the Open/Code block: %q", out)
+	}
+	if !strings.Contains(out, "Logged in as alex@example.com") {
+		t.Fatalf("login must still complete once the poll authorizes: %q", out)
+	}
+}
+
+func TestAuthLogin_Device_RefusesToOpenADifferentHost(t *testing.T) {
+	isolateHome(t)
+	api := &fakeLoginAPI{polls: [][2]any{{200, authorizedBody}}}
+	srv := newVerifyServer(t, api.handler(t))
+	api.startBody = `{"device_code":"dc-secret","user_code":"WDJB-MJHT","verification_uri":"` + srv.URL + `/cli/auth","verification_uri_complete":"https://evil.example/cli/auth?code=WDJB-MJHT","expires_in":600,"interval":5}`
+	te := &testEnv{}
+
+	code, out, stderr := runDeviceLogin(t, context.Background(), te.env(true, false), "--url", srv.URL)
+	if code != exitSuccess {
+		t.Fatalf("code = %d stderr=%q out=%q", code, stderr, out)
+	}
+	if len(te.opened) != 0 {
+		t.Fatalf("must never open a URL on a different host: %v", te.opened)
+	}
+	if !strings.Contains(out, "Open this on any device to authenticate:") || !strings.Contains(out, "Open:\n"+srv.URL+"/cli/auth\n") || !strings.Contains(out, "Code:\nWDJB-MJHT\n") {
+		t.Fatalf("stdout should fall back to the Open/Code block: %q", out)
+	}
+}
+
 func TestAuthLogin_Device_NoBrowserAvailable_NeverTriesToOpen(t *testing.T) {
 	isolateHome(t)
 	for _, tc := range []struct {

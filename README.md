@@ -160,7 +160,9 @@ connection string:
 
 `0` success (or, for `branch exec`, the exec'd command's own exit code) ·
 `1` operation/API failure · `2` auth/config missing or rejected (with a
-`pgrun auth login` hint) · `64` usage (bad flags/args).
+`pgrun auth login` hint; `pgrun auth login` itself exits `2` when `CI` is
+set — it refuses to open a browser, so use `PGRUN_API_TOKEN` or `auth set`
+instead) · `64` usage (bad flags/args) · `130` login cancelled with Ctrl+C.
 
 ## Sources
 

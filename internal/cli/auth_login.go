@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	neturl "net/url" // aliased: "url" is a local variable name throughout this file
 	"os"
 	"os/exec"
 	"strings"
@@ -103,6 +104,14 @@ func deviceLogin(ctx context.Context, url, path string, tryBrowser bool, stdout,
 	if openURL == "" {
 		openURL = auth.VerificationURI
 	}
+	// The server picks what URL we're told to open; a compromised or
+	// misbehaving one could hand back anything (a local file, a UNC path, a
+	// custom scheme some app on this machine registered). Only ever pass the
+	// OS opener an http(s) URL on the API's own host — otherwise fall back to
+	// the same print-and-wait path used when there's no browser to open at all.
+	if tryBrowser && !safeToOpenURL(openURL, url) {
+		tryBrowser = false
+	}
 	if tryBrowser {
 		fmt.Fprintf(stdout, "Opening browser to authenticate (code %s)...\n", auth.UserCode)
 		// cmd.Start() succeeding doesn't mean a browser actually showed up
@@ -194,6 +203,28 @@ poll:
 	}
 	fmt.Fprintf(stdout, "\nLogged in as %s\nAccount: %s (%s)\n", tok.User.Email, tok.Account.Name, tok.Account.Slug)
 	return exitSuccess
+}
+
+// safeToOpenURL reports whether candidate is safe to hand to the OS's "open
+// this URL" mechanism: an http or https URL whose host (including port)
+// matches apiURL's host. On macOS `open` dispatches ANY scheme (a custom
+// app's own URL scheme, even file://); on Windows the equivalent opens local
+// files and UNC paths. Restricting both the scheme and the host means the
+// only thing ever handed to the opener is a page on the server we already
+// trust enough to be polling for a token.
+func safeToOpenURL(candidate, apiURL string) bool {
+	u, err := neturl.Parse(candidate)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	base, err := neturl.Parse(apiURL)
+	if err != nil {
+		return false
+	}
+	return u.Host != "" && u.Host == base.Host
 }
 
 func pollFailed(stdout, stderr io.Writer, code int, msg string) int {
