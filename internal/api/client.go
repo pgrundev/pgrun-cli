@@ -83,6 +83,8 @@ type Branch struct {
 	CreatedAt       string `json:"created_at"`
 	ExpiresAt       string `json:"expires_at"`
 	ConnectionURL   string `json:"connection_url"`
+	Engine          string `json:"engine"`   // "postgres" or "pgx"; "" from older servers
+	Database        string `json:"database"` // database name inside the branch, e.g. "b_4720"
 }
 
 // Branch statuses. creating/snapshotting/provisioning/starting/deleting are

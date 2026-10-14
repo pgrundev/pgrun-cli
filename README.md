@@ -132,7 +132,7 @@ production connection URL. See [Sources](#sources).
 | `pgrun branch url <project> <name>` | `DATABASE_URL=...` if ready and credentialed (exit 0), else a sanitized reason (exit 1). |
 | `pgrun branch env <project> <name> [--format=json]` | `export DATABASE_URL="..."` (eval-able), or `{"database_url":"..."}` with `--format=json`. Same readiness rule as `branch url`. |
 | `pgrun branch exec <project> <name> -- <command...>` | Run `<command>` with `DATABASE_URL` set in its environment (never on argv, never in a file); exits with the command's own exit code. |
-| `pgrun branch exec <project> --create <newname> [--ttl ...] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>` | Create a fresh branch, wait for it, run the command, and (`--delete-after`) delete it afterward — even if the command fails. |
+| `pgrun branch exec <project> --create <newname> [--ttl ...] [--from <parent>] [--delete-after] [--timeout 300s] [--timings] -- <command...>` | Create a fresh branch, wait for it, run the command, and (`--delete-after`) delete it afterward — even if the command fails or the job is cancelled (SIGTERM/SIGHUP are forwarded to the command, then the branch is deleted). `--timings` prints one `pgrun: timings branch=… engine=… database=… create_ms=… ready_wait_ms=… command_ms=… delete_ms=… total_ms=… exit=…` line to stderr; it never prints the URL. |
 | `pgrun branch delete <project> <name> [--json]` | `202` → deleting (exit 0); `409` on the base branch or a branch with children (exit 1). |
 | `pgrun auth login [--no-browser] [--paste] [--url <URL>]` | Authorize in your browser (default); `--paste` a token instead. |
 | `pgrun auth logout` | Remove the saved config. |

@@ -33,7 +33,7 @@ Usage:
   pgrun branch url [<project>] <name>
   pgrun branch env [<project>] <name> [--format=json]
   pgrun branch exec [<project>] <name> -- <command...>
-  pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] -- <command...>
+  pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] [--timings] -- <command...>
   pgrun branch delete [<project>] <name> [--json]
   pgrun source list [--json]
   pgrun source get [<name>] [--json]
