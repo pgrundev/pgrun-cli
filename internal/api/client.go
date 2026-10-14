@@ -105,6 +105,9 @@ type CreateBranchRequest struct {
 	Name           string `json:"name"`
 	TTL            string `json:"ttl,omitempty"`
 	ParentBranchID string `json:"parent_branch_id,omitempty"`
+	// Template mints the branch from a ready CI template (schema + seed)
+	// instead of the project's full sanitized copy.
+	Template string `json:"template,omitempty"`
 }
 
 // ValidTTL reports whether ttl is one of the server's four accepted values.

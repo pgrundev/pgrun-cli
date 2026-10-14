@@ -27,14 +27,19 @@ var Version = "dev"
 const usage = `pgrun — create, use, and delete disposable PGRun database branches
 
 Usage:
-  pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]
+  pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name> | --template <t> | --schema-only] [--wait] [--timeout 300s] [--json]
   pgrun branch list [<project>] [--json]
   pgrun branch get [<project>] <name> [--json]      (alias: status)
   pgrun branch url [<project>] <name>
   pgrun branch env [<project>] <name> [--format=json]
   pgrun branch exec [<project>] <name> -- <command...>
-  pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] [--timings] -- <command...>
+  pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent> | --template <t> | --schema-only] [--delete-after] [--timeout 300s] [--timings] -- <command...>
   pgrun branch delete [<project>] <name> [--json]
+  pgrun template create [<project>] <name> --schema-only [--seed <file.sql>] [--wait] [--timeout 15m] [--json]   (idempotent; rebuilds only on change)
+  pgrun template list [<project>] [--json]
+  pgrun template get [<project>] <name> [--json]
+  pgrun template build [<project>] <name> [--wait] [--timeout 15m] [--json]
+  pgrun template delete [<project>] <name> [--json]
   pgrun source list [--json]
   pgrun source get [<name>] [--json]
   pgrun source status [<name>] [--json]
@@ -77,6 +82,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "branch":
 		return runBranch(args[1:], stdout, stderr)
+	case "template", "templates":
+		return runTemplate(args[1:], stdout, stderr)
 	case "source", "sources":
 		return runSource(args[1:], os.Stdin, stdout, stderr)
 	case "project", "projects":

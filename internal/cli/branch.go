@@ -38,7 +38,7 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 func branchCreate(args []string, stdout, stderr io.Writer) int {
 	pos, rest := leadingPositionals(args)
 	if len(pos) > 1 {
-		return usageErrf(stderr, "branch create: unexpected argument %q — usage: pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]", pos[1])
+		return usageErrf(stderr, "branch create: unexpected argument %q — usage: pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name> | --template <t> | --schema-only] [--wait] [--timeout 300s] [--json]", pos[1])
 	}
 	explicit := ""
 	if len(pos) == 1 {
@@ -54,6 +54,8 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	name := fs.String("name", "", "branch name (required)")
 	ttl := fs.String("ttl", "", "time-to-live: 1h, 6h, 24h, or 7d")
 	parent := fs.String("parent", "", "parent branch (id, branch_<id>, or name)")
+	template := fs.String("template", "", "mint from this CI template (schema + seed) instead of the full sanitized copy")
+	schemaOnly := fs.Bool("schema-only", false, "schema without application rows (the built-in \""+api.SchemaOnlyTemplate+"\" template)")
 	wait := fs.Bool("wait", false, "poll until the branch is ready or failed")
 	timeout := fs.Duration("timeout", 300*time.Second, "max time to wait with --wait")
 	jsonFlag := addJSONFlag(fs)
@@ -70,6 +72,10 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	if *ttl != "" && !api.ValidTTL(*ttl) {
 		return usageErrf(stderr, "branch create: --ttl must be one of 1h, 6h, 24h, 7d")
 	}
+	tpl, define, msg := templateChoice(*parent, *template, *schemaOnly)
+	if msg != "" {
+		return usageErrf(stderr, "branch create: %s", msg)
+	}
 	jsonOut := *jsonFlag
 	timeoutVal := *timeout
 
@@ -79,8 +85,11 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	}
 	client := api.New(cfg.URL, cfg.Token)
 
+	if tpl != "" && !ensureTemplateReady(client, project, tpl, define, templateWaitTimeout, stderr) {
+		return exitFailure
+	}
 	raw, branch, err := client.CreateBranch(context.Background(), project, api.CreateBranchRequest{
-		Name: *name, TTL: *ttl, ParentBranchID: *parent,
+		Name: *name, TTL: *ttl, ParentBranchID: *parent, Template: tpl,
 	})
 	if err != nil {
 		return handleAPIError(err, jsonOut, raw, stdout, stderr)
@@ -333,4 +342,24 @@ func branchDelete(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "branch %s: %s\n", name, status)
 	return exitSuccess
+}
+
+// templateWaitTimeout bounds how long branch create/exec wait for a CI
+// template build before asking for the branch. A first schema-only build of
+// a large schema takes minutes; after that the template is reused as is.
+var templateWaitTimeout = 15 * time.Minute
+
+// templateChoice resolves --parent / --template / --schema-only, which pick
+// mutually exclusive starting points. define reports whether the template is
+// the built-in schema-only one that the CLI defines on demand.
+func templateChoice(parent, template string, schemaOnly bool) (name string, define bool, problem string) {
+	switch {
+	case schemaOnly && template != "":
+		return "", false, "--schema-only and --template are mutually exclusive"
+	case (schemaOnly || template != "") && parent != "":
+		return "", false, "--parent cannot be combined with --template/--schema-only (a template is the starting point)"
+	case schemaOnly:
+		return api.SchemaOnlyTemplate, true, ""
+	}
+	return template, false, ""
 }

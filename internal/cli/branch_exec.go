@@ -16,7 +16,7 @@ import (
 )
 
 const branchExecUsage = "usage: pgrun branch exec [<project>] <name> -- <command...>\n" +
-	"   or: pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent>] [--delete-after] [--timeout 300s] [--timings] -- <command...>"
+	"   or: pgrun branch exec [<project>] --create <newname> [--ttl 1h|6h|24h|7d] [--from <parent> | --template <t> | --schema-only] [--delete-after] [--timeout 300s] [--timings] -- <command...>"
 
 // branchExec implements `pgrun branch exec`: the headline agent primitive.
 // It resolves a branch's DATABASE_URL, runs a command with it set in the
@@ -44,6 +44,8 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 	create := fs.String("create", "", "create a fresh branch with this name before running the command")
 	ttl := fs.String("ttl", "", "time-to-live for --create: 1h, 6h, 24h, or 7d")
 	from := fs.String("from", "", "parent branch for --create (id, branch_<id>, or name)")
+	template := fs.String("template", "", "mint --create's branch from this CI template (schema + seed)")
+	schemaOnly := fs.Bool("schema-only", false, "--create a schema-only branch (the built-in \""+api.SchemaOnlyTemplate+"\" template)")
 	deleteAfter := fs.Bool("delete-after", false, "delete the --create'd branch after the command runs, even if it fails")
 	timeout := fs.Duration("timeout", 300*time.Second, "max time to wait for --create's branch to become ready")
 	timings := fs.Bool("timings", false, "print one `pgrun: timings ...` line to stderr: per-phase durations, engine, database")
@@ -89,8 +91,12 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		return usageErrf(stderr, "branch exec: either <name> or --create <newname> is required — "+branchExecUsage)
 	}
 
-	if *create == "" && (*ttl != "" || *from != "" || *deleteAfter) {
-		return usageErrf(stderr, "branch exec: --ttl/--from/--delete-after require --create")
+	if *create == "" && (*ttl != "" || *from != "" || *deleteAfter || *template != "" || *schemaOnly) {
+		return usageErrf(stderr, "branch exec: --ttl/--from/--template/--schema-only/--delete-after require --create")
+	}
+	tpl, define, msg := templateChoice(*from, *template, *schemaOnly)
+	if msg != "" {
+		return usageErrf(stderr, "branch exec: %s", msg)
 	}
 	if *ttl != "" && !api.ValidTTL(*ttl) {
 		return usageErrf(stderr, "branch exec: --ttl must be one of 1h, 6h, 24h, 7d")
@@ -121,8 +127,17 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		t.print(stderr, code)
 		return code
 	}
-	t.branch = *create
-	code = execAgainstCreatedBranch(client, project, *create, *ttl, *from, *deleteAfter, *timeout, command, sigs, t, stdout, stderr)
+	t.branch, t.template = *create, tpl
+	if tpl != "" {
+		began := time.Now()
+		ready := ensureTemplateReady(client, project, tpl, define, templateWaitTimeout, stderr)
+		t.templateWait, t.templated = time.Since(began), true
+		if !ready {
+			t.print(stderr, exitFailure)
+			return exitFailure
+		}
+	}
+	code = execAgainstCreatedBranch(client, project, *create, *ttl, *from, tpl, *deleteAfter, *timeout, command, sigs, t, stdout, stderr)
 	t.print(stderr, code)
 	return code
 }
@@ -135,7 +150,10 @@ type execTimings struct {
 	enabled          bool
 	start            time.Time
 	branch           string
+	template         string
 	engine, database string
+	templateWait     time.Duration
+	templated        bool
 	create           time.Duration
 	readyWait        time.Duration
 	command          time.Duration
@@ -169,9 +187,9 @@ func (t *execTimings) print(w io.Writer, code int) {
 		}
 		return s
 	}
-	fmt.Fprintf(w, "pgrun: timings branch=%s engine=%s database=%s create_ms=%d ready_wait_ms=%d command_ms=%d delete_ms=%d total_ms=%d exit=%d\n",
-		t.branch, orDash(t.engine), orDash(t.database),
-		ms(t.created, t.create), ms(t.waited, t.readyWait), ms(t.ran, t.command), ms(t.deleted, t.delete),
+	fmt.Fprintf(w, "pgrun: timings branch=%s template=%s engine=%s database=%s template_wait_ms=%d create_ms=%d ready_wait_ms=%d command_ms=%d delete_ms=%d total_ms=%d exit=%d\n",
+		t.branch, orDash(t.template), orDash(t.engine), orDash(t.database),
+		ms(t.templated, t.templateWait), ms(t.created, t.create), ms(t.waited, t.readyWait), ms(t.ran, t.command), ms(t.deleted, t.delete),
 		time.Since(t.start).Milliseconds(), code)
 }
 
@@ -218,10 +236,10 @@ func (t *execTimings) runCommand(command []string, databaseURL string, sigs <-ch
 // failure") on purpose — an agent that asked for cleanup shouldn't leak a
 // branch that got stuck mid-provision either; the branch's TTL is the
 // backstop of last resort, not the plan.
-func execAgainstCreatedBranch(client *api.Client, project, name, ttl, parent string, deleteAfter bool, timeout time.Duration, command []string, sigs <-chan os.Signal, t *execTimings, stdout, stderr io.Writer) (code int) {
+func execAgainstCreatedBranch(client *api.Client, project, name, ttl, parent, template string, deleteAfter bool, timeout time.Duration, command []string, sigs <-chan os.Signal, t *execTimings, stdout, stderr io.Writer) (code int) {
 	began := time.Now()
 	raw, branch, err := client.CreateBranch(context.Background(), project, api.CreateBranchRequest{
-		Name: name, TTL: ttl, ParentBranchID: parent,
+		Name: name, TTL: ttl, ParentBranchID: parent, Template: template,
 	})
 	t.create, t.created = time.Since(began), true
 	if err != nil {
