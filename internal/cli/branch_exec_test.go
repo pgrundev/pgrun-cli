@@ -46,6 +46,12 @@ func TestMain(m *testing.M) {
 		case <-time.After(10 * time.Second):
 			os.Exit(99)
 		}
+	case "die_on_term":
+		// Like `sh -c 'sleep …'` in a real job: no handler, so the forwarded
+		// SIGTERM kills it outright and there is no exit status, only a signal.
+		os.WriteFile(os.Getenv("PGRUN_TEST_MARKER"), nil, 0o600)
+		time.Sleep(10 * time.Second)
+		os.Exit(99)
 	default:
 		os.Exit(1)
 	}
@@ -255,6 +261,50 @@ func TestBranchExec_Create_DeleteAfter_SIGTERMDuringCommand_ForwardsAndDeletes(t
 	case code := <-done:
 		if code != 143 {
 			t.Fatalf("code = %d, want 143 (the child's exit after the forwarded SIGTERM)", code)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("branch exec did not return after SIGTERM")
+	}
+	if got := atomic.LoadInt32(&deleteCalls); got != 1 {
+		t.Fatalf("DELETE calls = %d, want 1 — a cancelled CI job must not leak its branch", got)
+	}
+}
+
+func TestBranchExec_Create_DeleteAfter_SIGTERMDuringCommand_KilledChild_Exits143(t *testing.T) {
+	withFastPoll(t)
+	var deleteCalls int32
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"b1","name":"ci-1","status":"creating"}`))
+		case http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"id":"b1","name":"ci-1","status":"ready","connection_url":"postgres://u:p@host/ci-1"}`))
+		case http.MethodDelete:
+			atomic.AddInt32(&deleteCalls, 1)
+			w.WriteHeader(http.StatusAccepted)
+			w.Write([]byte(`{"status":"deleting"}`))
+		}
+	})
+	marker := filepath.Join(t.TempDir(), "started")
+	t.Setenv("PGRUN_TEST_MARKER", marker)
+	self := helperCommand(t, "die_on_term")
+
+	done := make(chan int, 1)
+	go func() {
+		code, _, _ := run(t, append([]string{
+			"branch", "exec", "proj1", "--create", "ci-1", "--delete-after", "--timeout", "5s", "--",
+		}, self...)...)
+		done <- code
+	}()
+	waitForFile(t, marker)
+	sendSelfSIGTERM(t)
+
+	select {
+	case code := <-done:
+		if code != 143 {
+			t.Fatalf("code = %d, want 143 (128+SIGTERM for a child the forwarded signal killed)", code)
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("branch exec did not return after SIGTERM")

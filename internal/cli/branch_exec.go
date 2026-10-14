@@ -344,6 +344,11 @@ func runCommandWithDatabaseURL(command []string, databaseURL string, sigs <-chan
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
+		// A command the signal killed has no exit status (ExitCode is -1);
+		// report it the way a shell does, 128+signal, so CI sees 143/130.
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return signalExitCode(ws.Signal())
+		}
 		return exitErr.ExitCode()
 	}
 	fmt.Fprintf(stderr, "pgrun: branch exec: %v\n", err)
