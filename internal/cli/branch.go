@@ -38,7 +38,7 @@ func runBranch(args []string, stdout, stderr io.Writer) int {
 func branchCreate(args []string, stdout, stderr io.Writer) int {
 	pos, rest := leadingPositionals(args)
 	if len(pos) > 1 {
-		return usageErrf(stderr, "branch create: unexpected argument %q — usage: pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name> | --template <t> | --schema-only] [--wait] [--timeout 300s] [--json]", pos[1])
+		return usageErrf(stderr, "branch create: unexpected argument %q — usage: pgrun branch create [<project>] --name <n> [--ttl 1h|6h|24h|7d] [--parent <name> | --template <t> | --schema-only] [--engine pgx|postgres] [--wait] [--timeout 300s] [--json]", pos[1])
 	}
 	explicit := ""
 	if len(pos) == 1 {
@@ -56,6 +56,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	parent := fs.String("parent", "", "parent branch (id, branch_<id>, or name)")
 	template := fs.String("template", "", "mint from this CI template (schema + seed) instead of the full sanitized copy")
 	schemaOnly := fs.Bool("schema-only", false, "schema without application rows (the built-in \""+api.SchemaOnlyTemplate+"\" template)")
+	engine := fs.String("engine", "", "branch engine: pgx (PGX Beta) or postgres; default: PGX Beta when the project is eligible, else PostgreSQL")
 	wait := fs.Bool("wait", false, "poll until the branch is ready or failed")
 	timeout := fs.Duration("timeout", 300*time.Second, "max time to wait with --wait")
 	jsonFlag := addJSONFlag(fs)
@@ -72,9 +73,15 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	if *ttl != "" && !api.ValidTTL(*ttl) {
 		return usageErrf(stderr, "branch create: --ttl must be one of 1h, 6h, 24h, 7d")
 	}
+	if *engine != "" && !api.ValidEngine(*engine) {
+		return usageErrf(stderr, "branch create: --engine must be pgx or postgres")
+	}
 	tpl, define, msg := templateChoice(*parent, *template, *schemaOnly)
 	if msg != "" {
 		return usageErrf(stderr, "branch create: %s", msg)
+	}
+	if tpl != "" && *engine == "postgres" {
+		return usageErrf(stderr, "branch create: a template branch runs on PGX Beta — drop --engine postgres")
 	}
 	jsonOut := *jsonFlag
 	timeoutVal := *timeout
@@ -89,7 +96,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 		return exitFailure
 	}
 	raw, branch, err := client.CreateBranch(context.Background(), project, api.CreateBranchRequest{
-		Name: *name, TTL: *ttl, ParentBranchID: *parent, Template: tpl,
+		Name: *name, TTL: *ttl, ParentBranchID: *parent, Template: tpl, Engine: *engine,
 	})
 	if err != nil {
 		return handleAPIError(err, jsonOut, raw, stdout, stderr)

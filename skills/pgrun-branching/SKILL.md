@@ -66,7 +66,11 @@ normally — the rest of this skill applies unchanged.
 2. **Get a branch.** Either step, or the one-liner in "Simplest path" below:
    - `pgrun branch create <project> --name <task-slug> --ttl 1h --wait --json`
      — waits for ready, and the JSON includes `database_url` directly (no
-     second call needed).
+     second call needed). The server picks the engine (PGX Beta when the
+     project is eligible, else PostgreSQL); add `--engine postgres` when the
+     task needs the source's exact engine, extensions or settings, or
+     `--engine pgx` to insist on PGX Beta (an `engine_unavailable` error
+     instead of a silent fallback).
    - or reuse one you already created: `pgrun branch env <project> <name>`.
 > The URL is a TLS endpoint on a per-branch hostname and already contains
 > `sslmode=require`. Use it exactly as given — do not rewrite the host, the port
@@ -135,7 +139,7 @@ framework command — the pattern is "inject the env var," not "always type
 
 **MCP tools** (`pgrun mcp serve`, four tools:
 `pgrun_create_branch`/`pgrun_list_branches`/`pgrun_get_branch`/`pgrun_delete_branch`):
-call `pgrun_create_branch{project,name,ttl}` with `wait` left at its default
+call `pgrun_create_branch{project,name,ttl[,engine]}` with `wait` left at its default
 (`true`) — the result JSON carries `database_url` (and `connection_url`)
 once the branch is ready. Call `pgrun_delete_branch{project,name}` when
 done.

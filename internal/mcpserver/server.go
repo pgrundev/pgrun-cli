@@ -226,6 +226,7 @@ type createBranchArgs struct {
 	Name           string   `json:"name"`
 	TTL            string   `json:"ttl"`
 	Parent         string   `json:"parent"`
+	Engine         string   `json:"engine"`
 	Wait           *bool    `json:"wait"`
 	TimeoutSeconds *float64 `json:"timeout_seconds"`
 }
@@ -241,6 +242,9 @@ func (s *Server) toolCreateBranch(ctx context.Context, raw json.RawMessage) any 
 	if a.TTL != "" && !api.ValidTTL(a.TTL) {
 		return toolError(fmt.Sprintf("ttl must be one of 1h, 6h, 24h, 7d (got %q)", a.TTL))
 	}
+	if a.Engine != "" && !api.ValidEngine(a.Engine) {
+		return toolError(fmt.Sprintf("engine must be pgx or postgres (got %q)", a.Engine))
+	}
 
 	wait := true
 	if a.Wait != nil {
@@ -252,7 +256,7 @@ func (s *Server) toolCreateBranch(ctx context.Context, raw json.RawMessage) any 
 	}
 
 	respRaw, branch, err := s.Client.CreateBranch(ctx, a.Project, api.CreateBranchRequest{
-		Name: a.Name, TTL: a.TTL, ParentBranchID: a.Parent,
+		Name: a.Name, TTL: a.TTL, ParentBranchID: a.Parent, Engine: a.Engine,
 	})
 	if err != nil {
 		return apiToolError(err)

@@ -336,6 +336,37 @@ func TestCreateBranch_InvalidTTL_IsError(t *testing.T) {
 
 // TestCreateBranch_InvalidProjectName_IsError is F3's MCP-level case: ".."
 // must never reach the network.
+func TestCreateBranch_InvalidEngine_IsError(t *testing.T) {
+	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)
+	})
+	s := startSession(t, client)
+
+	s.send(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "pgrun_create_branch", "arguments": map[string]any{
+			"project": "proj1", "name": "feature-x", "engine": "mysql",
+		}},
+	})
+	resp := s.recv()
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a result carrying isError, got: %+v", resp)
+	}
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("isError = %v, want true", result["isError"])
+	}
+	text := firstContentText(t, resp)
+	for _, want := range []string{"pgx", "postgres"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("message should name both engines, missing %q: %s", want, text)
+		}
+	}
+	s.closeAndWait()
+}
+
+// TestCreateBranch_InvalidProjectName_IsError is F3's MCP-level case: ".."
+// must never reach the network.
 func TestCreateBranch_InvalidProjectName_IsError(t *testing.T) {
 	client := newTestAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("unexpected request reached the server: %s %s", r.Method, r.URL.Path)

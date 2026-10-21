@@ -22,6 +22,10 @@ var toolDefinitions = []map[string]any{
 					"type":        "string",
 					"description": "Parent branch — id, \"branch_<id>\", or name. Defaults to the project's base branch.",
 				},
+				"engine": map[string]any{
+					"type": "string", "enum": []string{"pgx", "postgres"},
+					"description": "Branch engine. Omit for the server's choice (PGX Beta when the project is eligible, else PostgreSQL). \"postgres\" always runs PostgreSQL; \"pgx\" insists on PGX Beta and errors (engine_unavailable) instead of falling back.",
+				},
 				"wait": map[string]any{
 					"type":        "boolean",
 					"description": "Poll until the branch reaches ready or failed before returning (default true). false returns immediately with the creating-status response.",

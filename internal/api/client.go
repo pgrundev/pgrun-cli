@@ -108,6 +108,16 @@ type CreateBranchRequest struct {
 	// Template mints the branch from a ready CI template (schema + seed)
 	// instead of the project's full sanitized copy.
 	Template string `json:"template,omitempty"`
+	// Engine is "pgx" or "postgres"; "" lets the server choose (PGX Beta
+	// when the project is eligible, PostgreSQL otherwise). "pgx" on an
+	// ineligible project is a 422 engine_unavailable, never a fallback.
+	Engine string `json:"engine,omitempty"`
+}
+
+// ValidEngine reports whether engine is one of the two the server accepts.
+// Like ValidTTL it does NOT accept "" (that means "server's choice").
+func ValidEngine(engine string) bool {
+	return engine == "pgx" || engine == "postgres"
 }
 
 // ValidTTL reports whether ttl is one of the server's four accepted values.

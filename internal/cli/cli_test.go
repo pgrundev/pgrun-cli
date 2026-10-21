@@ -86,15 +86,17 @@ func TestUsageErrors(t *testing.T) {
 		{"branch", "bogus"},          // unknown subcommand
 		{"branch", "create"},         // missing project
 		{"branch", "create", "proj"}, // missing --name
-		{"branch", "create", "proj", "--name", "x", "--ttl", "3h"}, // bad ttl
-		{"branch", "get", "proj"},                                  // missing name
-		{"branch", "url", "proj"},                                  // missing name
-		{"branch", "delete", "proj"},                               // missing name
-		{"auth"},                                                   // missing subcommand
-		{"auth", "set"},                                            // missing --token
-		{"auth", "bogus"},                                          // unknown subcommand
-		{"mcp"},                                                    // missing "serve"
-		{"mcp", "bogus"},                                           // not "serve"
+		{"branch", "create", "proj", "--name", "x", "--ttl", "3h"},                           // bad ttl
+		{"branch", "create", "proj", "--name", "x", "--engine", "mysql"},                     // bad engine
+		{"branch", "create", "proj", "--name", "x", "--schema-only", "--engine", "postgres"}, // template needs PGX
+		{"branch", "get", "proj"},    // missing name
+		{"branch", "url", "proj"},    // missing name
+		{"branch", "delete", "proj"}, // missing name
+		{"auth"},                     // missing subcommand
+		{"auth", "set"},              // missing --token
+		{"auth", "bogus"},            // unknown subcommand
+		{"mcp"},                      // missing "serve"
+		{"mcp", "bogus"},             // not "serve"
 	}
 	for _, args := range cases {
 		code, _, stderr := run(t, args...)
@@ -241,6 +243,37 @@ func TestBranchCreate_NoWait(t *testing.T) {
 	}
 	if strings.Contains(out, "DATABASE_URL") {
 		t.Fatalf("no --wait must never print DATABASE_URL: %q", out)
+	}
+}
+
+func TestBranchCreate_EngineFlagIsSent(t *testing.T) {
+	var got map[string]any
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating","engine":"postgres","requested_engine":"postgres"}`))
+	})
+	code, _, _ := run(t, "branch", "create", "proj1", "--name", "feature-x", "--engine", "postgres")
+	if code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	if got["engine"] != "postgres" {
+		t.Fatalf("request body engine = %v, want postgres (body %v)", got["engine"], got)
+	}
+}
+
+func TestBranchCreate_NoEngineFlagOmitsField(t *testing.T) {
+	var got map[string]any
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"b1","name":"feature-x","status":"creating"}`))
+	})
+	if code, _, _ := run(t, "branch", "create", "proj1", "--name", "feature-x"); code != exitSuccess {
+		t.Fatalf("code = %d", code)
+	}
+	if _, present := got["engine"]; present {
+		t.Fatalf("engine must be omitted when --engine is not given: %v", got)
 	}
 }
 

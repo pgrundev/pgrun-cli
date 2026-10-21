@@ -126,7 +126,7 @@ production connection URL. See [Sources](#sources).
 
 | Command | What it does |
 |---|---|
-| `pgrun branch create <project> --name <n> [--ttl 1h\|6h\|24h\|7d] [--parent <name>] [--wait] [--timeout 300s] [--json]` | Create a branch. `--wait` polls every 2s until ready/failed/timeout; prints `DATABASE_URL=...` on ready (`--json` adds a `database_url` field). Without `--wait`, prints a status line and exits 0 immediately. |
+| `pgrun branch create <project> --name <n> [--ttl 1h\|6h\|24h\|7d] [--parent <name>] [--engine pgx\|postgres] [--wait] [--timeout 300s] [--json]` | Create a branch. `--engine` picks the runtime: `pgx` (PGX Beta, ready in under a second; a 422 `engine_unavailable` if the project cannot run it, never a silent fallback) or `postgres`; omit it for the server's choice (PGX Beta when eligible, else PostgreSQL). `--wait` polls every 2s until ready/failed/timeout; prints `DATABASE_URL=...` on ready (`--json` adds a `database_url` field). Without `--wait`, prints a status line and exits 0 immediately. |
 | `pgrun branch list <project> [--json]` | Table: `NAME STATUS BASE PARENT VERSION CREATED EXPIRES`. Never shows a connection string. |
 | `pgrun branch get <project> <name> [--json]` (alias `status`) | One branch's status. Human mode never shows `connection_url`. |
 | `pgrun branch url <project> <name>` | `DATABASE_URL=...` if ready and credentialed (exit 0), else a sanitized reason (exit 1). |
