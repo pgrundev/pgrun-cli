@@ -113,7 +113,7 @@ func sourceNameArgs(cmd string, args []string, stderr io.Writer) (name string, r
 	if looksLikeConnectionURL(explicit) {
 		return "", nil, usageErrf(stderr, "source %s: that argument is the Production Database name, not a connection URL — usage: pgrun source %s [<name>] %s", cmd, cmd, sourceUsageFlags(cmd)), false
 	}
-	name, code, ok = resolveProject(explicit, stderr)
+	name, code, ok = resolveProject(explicit, rest, stderr)
 	if !ok {
 		return "", nil, code, false
 	}

@@ -44,7 +44,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 1 {
 		explicit = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -168,7 +168,7 @@ func branchList(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 1 {
 		explicit = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -216,7 +216,7 @@ func branchGet(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -264,7 +264,7 @@ func branchURL(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -317,7 +317,7 @@ func branchDelete(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}

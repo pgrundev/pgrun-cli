@@ -73,7 +73,7 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		}
 		var code int
 		var ok bool
-		project, code, ok = resolveProject(explicit, stderr)
+		project, code, ok = resolveProject(explicit, rest, stderr)
 		if !ok {
 			return code
 		}
@@ -83,7 +83,7 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		name = pos[0]
 		var code int
 		var ok bool
-		project, code, ok = resolveProject("", stderr)
+		project, code, ok = resolveProject("", rest, stderr)
 		if !ok {
 			return code
 		}

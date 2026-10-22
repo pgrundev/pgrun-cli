@@ -60,7 +60,7 @@ func projectAndName(cmd string, args []string, stderr io.Writer) (project, name 
 	} else {
 		name = pos[0]
 	}
-	project, code, ok = resolveProject(explicit, stderr)
+	project, code, ok = resolveProject(explicit, rest, stderr)
 	return project, name, rest, code, ok
 }
 
@@ -175,7 +175,7 @@ func templateList(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 1 {
 		explicit = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}

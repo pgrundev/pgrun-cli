@@ -700,3 +700,27 @@ func TestBranchDelete_409OnBase(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
+
+// TestBranchCreate_HelpNeedsNoProject: `pgrun branch create --help` from a
+// directory with no .pgrun/project prints the flags and exits 0, instead of
+// the "no project given" usage error the project lookup used to raise first.
+func TestBranchCreate_HelpNeedsNoProject(t *testing.T) {
+	chdir(t, t.TempDir())
+	for _, sub := range [][]string{{"branch", "create", "--help"}, {"branch", "list", "-h"}, {"template", "list", "--help"}} {
+		code, _, errOut := run(t, sub...)
+		if code != exitSuccess {
+			t.Fatalf("%v: code = %d, stderr = %q", sub, code, errOut)
+		}
+		if strings.Contains(errOut, "no project given") {
+			t.Fatalf("%v: help still demanded a project: %q", sub, errOut)
+		}
+	}
+	_, _, errOut := run(t, "branch", "create", "--help")
+	if !strings.Contains(errOut, "-engine") {
+		t.Fatalf("branch create --help should list -engine: %q", errOut)
+	}
+	// Without --help the lookup still runs and still refuses.
+	if code, _, errOut := run(t, "branch", "create", "--name", "x"); code != exitUsage || !strings.Contains(errOut, "no project given") {
+		t.Fatalf("no-help, no-project: code = %d, stderr = %q", code, errOut)
+	}
+}

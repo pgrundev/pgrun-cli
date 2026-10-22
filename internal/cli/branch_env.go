@@ -31,7 +31,7 @@ func branchEnv(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
