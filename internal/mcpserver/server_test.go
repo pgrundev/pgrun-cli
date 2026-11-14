@@ -137,15 +137,16 @@ func TestFullSession(t *testing.T) {
 	}
 	toolsResult, _ := resp["result"].(map[string]any)
 	tools, _ := toolsResult["tools"].([]any)
-	if len(tools) != 4 {
-		t.Fatalf("tools/list: got %d tools, want 4: %+v", len(tools), toolsResult)
+	if len(tools) != 7 {
+		t.Fatalf("tools/list: got %d tools, want 7: %+v", len(tools), toolsResult)
 	}
 	names := map[string]bool{}
 	for _, tool := range tools {
 		m := tool.(map[string]any)
 		names[m["name"].(string)] = true
 	}
-	for _, want := range []string{"pgrun_create_branch", "pgrun_list_branches", "pgrun_get_branch", "pgrun_delete_branch"} {
+	for _, want := range []string{"pgrun_create_branch", "pgrun_list_branches", "pgrun_get_branch", "pgrun_delete_branch",
+		"pgrun_bot_lint", "pgrun_bot_schema", "pgrun_bot_explain"} {
 		if !names[want] {
 			t.Fatalf("tools/list missing %q: %+v", want, names)
 		}

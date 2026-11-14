@@ -17,9 +17,29 @@ The agent-first path — three commands, then hand the work to Claude Code:
 
 ```sh
 pgrun auth login       # opens your browser to authorize; --paste to paste a token instead
-pgrun skill install    # installs the pgrun-branching skill into ~/.claude/skills
+pgrun setup            # installs the pgrun-branching skill and PgBot (idempotent; --json for agents)
 claude                 # then: "Add an index to users.email and test it on a pgrun branch"
 ```
+
+`pgrun setup` is the one install path, whether you run it or the skill asks an agent to:
+it installs or refreshes the skill (`--agent claude,codex`, `--project`, `--dir`), makes
+[PgBot](https://github.com/pgrundev/pgbot) available (keeps a compatible `pgbot` already on
+your PATH, else downloads the pinned release and verifies its checksum), and reports whether
+auth is configured. It never edits `AGENTS.md`/`CLAUDE.md` unless you pass
+`--agents-md <file>`, and then only between its own markers.
+
+### PgBot: verify database changes
+
+```sh
+pgrun bot verify -- bin/rails db:migrate          # migration on a disposable PostgreSQL branch, reviewed, cleaned up
+pgrun bot verify --compare-pgx --json -- npx prisma migrate deploy   # same migration on PGX too, schemas compared
+pgrun bot lint <branch> --json                    # schema findings (read-only)
+pgrun bot schema <branch>                         # schema snapshot (catalog only)
+pgrun bot explain <branch> "select * from orders where user_id = $1"
+```
+
+`pgrun bot` only inspects PGRun branches (never a connection string you pass it), runs pgbot
+read-only, and never sends anything to an AI provider.
 
 The skill teaches Claude when to create a branch, how to inject its
 `DATABASE_URL` into only the commands that need it, and when to delete it.
