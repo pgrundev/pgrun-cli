@@ -265,6 +265,19 @@ func TestBotLint_PassesBranchURLInEnvOnly(t *testing.T) {
 	}
 }
 
+func TestBotInspect_SuppressesDisposableBranchSettings(t *testing.T) {
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"id":"b1","name":"br","status":"ready","connection_url":"postgres://u:p@br.example/db"}`))
+	})
+	logPath, _ := fakePgbot(t, "info")
+	code, _, stderr := run(t, "bot", "inspect", "proj", "br", "--json")
+	calls, _ := os.ReadFile(logPath)
+	if code != 0 || !strings.Contains(string(calls), "ARGS inspect --no-store --ignore fsync_off --ignore full_page_writes_off --ignore checkpoints_forced --json") ||
+		!strings.Contains(stderr, "suppressed for disposable branches") {
+		t.Fatalf("code %d stderr %s calls %s", code, stderr, calls)
+	}
+}
+
 func TestBotStatus_NotInstalled(t *testing.T) {
 	home := isolateHome(t)
 	t.Setenv("PATH", home) // no pgbot anywhere

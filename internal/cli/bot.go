@@ -219,6 +219,13 @@ func refusesAI(args []string) string {
 	return ""
 }
 
+// disposableBranchIgnores are findings about settings a PGRun branch runs with ON PURPOSE: a
+// branch is disposable and recreated rather than recovered, so it trades crash durability for
+// speed (fsync/full_page_writes off, small WAL). Measured on pgxbench: pgbot inspect on a PGX
+// branch reported fsync_off and full_page_writes_off as CRITICAL on every branch — noise an
+// agent would chase. They are suppressed for `pgrun bot inspect` only, and the output says so.
+var disposableBranchIgnores = []string{"fsync_off", "full_page_writes_off", "checkpoints_forced"}
+
 func botBranchCommand(sub string, args []string, stdout, stderr io.Writer) int {
 	pos, rest := leadingPositionals(args)
 	maxPos := 2
@@ -281,6 +288,10 @@ func botBranchCommand(sub string, args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "inspect":
 		pgbotArgs = []string{"inspect", "--no-store"}
+		for _, id := range disposableBranchIgnores {
+			pgbotArgs = append(pgbotArgs, "--ignore", id)
+		}
+		fmt.Fprintf(stderr, "pgrun: suppressed for disposable branches: %s\n", strings.Join(disposableBranchIgnores, ", "))
 		if *jsonOut {
 			pgbotArgs = append(pgbotArgs, "--json")
 		}
