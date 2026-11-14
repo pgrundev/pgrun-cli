@@ -544,3 +544,58 @@ func TestSetup_WithoutAgentsMDFlagNeverWritesInstructions(t *testing.T) {
 		}
 	}
 }
+
+// A CI token may only create ci-… branches: verify renames once on 422 token_scope.
+func TestBotVerify_CITokenNamingIsRetriedAsCiPrefix(t *testing.T) {
+	withFastPoll(t)
+	fb := &fakeBranches{}
+	withServer(t, func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		switch r.Method {
+		case http.MethodPost:
+			var body map[string]any
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &body)
+			if !strings.HasPrefix(body["name"].(string), "ci-") {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				w.Write([]byte(`{"error":"token_scope","message":"a CI token can only create branches named ci-…"}`))
+				return
+			}
+			fb.mu.Lock()
+			fb.created = append(fb.created, body)
+			fb.mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"b1","name":"` + body["name"].(string) + `","status":"creating"}`))
+		case http.MethodGet:
+			w.Write([]byte(`{"id":"b1","name":"` + name + `","status":"ready","engine":"postgres","connection_url":"postgres://u:p@h/db"}`))
+		case http.MethodDelete:
+			fb.mu.Lock()
+			fb.deleted = append(fb.deleted, name)
+			fb.mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			w.Write([]byte(`{"status":"deleting"}`))
+		}
+	})
+	_, mark := fakePgbot(t, "info")
+	code, rep, _ := verifyJSON(t, append([]string{"bot", "verify", "proj1", "--json", "--"}, migrationCommand(mark, "0")...)...)
+	if code != 0 || rep.Blocking || len(fb.created) != 1 || !strings.HasPrefix(rep.Postgres.Branch, "ci-verify-") {
+		t.Fatalf("code %d verdict %s created %v branch %s", code, rep.Verdict, fb.created, rep.Postgres.Branch)
+	}
+	if len(fb.deleted) != 1 || fb.deleted[0] != rep.Postgres.Branch {
+		t.Fatalf("deleted %v, want the renamed branch", fb.deleted)
+	}
+}
+
+func TestBotVerify_MigrationNeverSeesTheAPIToken(t *testing.T) {
+	withFastPoll(t)
+	verifyServer(t, &fakeBranches{}, true)
+	_, mark := fakePgbot(t, "info")
+	out := filepath.Join(t.TempDir(), "env")
+	t.Setenv("PGRUN_API_TOKEN", "pgr_supersecrettoken0123456789")
+	cmd := []string{"/bin/sh", "-c", `echo "TOKEN=${PGRUN_API_TOKEN:-none} URL_SET=${DATABASE_URL:+yes}" > "` + out + `"; touch "` + mark + `"`}
+	code, _, stderr := run(t, append([]string{"bot", "verify", "proj1", "--json", "--"}, cmd...)...)
+	got, _ := os.ReadFile(out)
+	if code != 0 || strings.TrimSpace(string(got)) != "TOKEN=none URL_SET=yes" {
+		t.Fatalf("code %d env %q stderr %s", code, got, stderr)
+	}
+}

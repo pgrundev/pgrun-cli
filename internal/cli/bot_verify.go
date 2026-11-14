@@ -430,8 +430,15 @@ func engineTag(engine string) string {
 }
 
 func (v *verifier) create(run *verifyEngineRun) (api.Branch, []byte) {
-	raw, b, err := v.client.CreateBranch(context.Background(), v.project, api.CreateBranchRequest{
-		Name: run.Branch, TTL: v.ttl, ParentBranchID: v.from, Engine: run.RequestedEngine})
+	req := api.CreateBranchRequest{Name: run.Branch, TTL: v.ttl, ParentBranchID: v.from, Engine: run.RequestedEngine}
+	raw, b, err := v.client.CreateBranch(context.Background(), v.project, req)
+	// A project CI token may only create branches named ci-… (docs/ci-tokens.md): the
+	// server says so with 422 token_scope; the same branch is then named ci-verify-….
+	if err != nil && strings.Contains(string(raw), `"token_scope"`) && !strings.HasPrefix(run.Branch, "ci-") {
+		run.Branch = "ci-" + run.Branch
+		req.Name = run.Branch
+		raw, b, err = v.client.CreateBranch(context.Background(), v.project, req)
+	}
 	if err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) && strings.Contains(string(raw), `"engine_unavailable"`) {
@@ -491,7 +498,7 @@ func (v *verifier) migrate(run *verifyEngineRun, url string) int {
 	began := time.Now()
 	cmd := exec.Command(v.command[0], v.command[1:]...)
 	cmd.Stdout, cmd.Stderr = v.out(), v.out()
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+url)
+	cmd.Env = append(migrationEnv(os.Environ()), "DATABASE_URL="+url)
 	err := cmd.Run()
 	run.MigrateMs = time.Since(began).Milliseconds()
 	code := 0
@@ -506,6 +513,24 @@ func (v *verifier) migrate(run *verifyEngineRun, url string) int {
 	}
 	run.ExitCode = &code
 	return code
+}
+
+// migrationEnv: the caller's environment minus pgrun's own credentials and any
+// DATABASE_URL — the migration needs the branch, never the API token.
+func migrationEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		k := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			k = kv[:i]
+		}
+		switch k {
+		case "PGRUN_API_TOKEN", "DATABASE_URL":
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func (v *verifier) pgbotToFile(url, path string, args ...string) error {
