@@ -31,6 +31,55 @@ type Client struct {
 	Kind string
 
 	httpClient *http.Client // nil uses the package default
+
+	// CapacityWait bounds how long CreateBranch waits on 429 capacity_busy
+	// (server admission control, 2026-11-14) before returning the error.
+	// 0 uses DefaultCapacityWait; negative disables waiting.
+	CapacityWait time.Duration
+	// OnCapacityWait, when set, is told before each wait (the CLI prints a line).
+	OnCapacityWait func(d time.Duration)
+	sleep          func(ctx context.Context, d time.Duration) error // tests replace it
+}
+
+// DefaultCapacityWait is how long a create waits, in total, for a busy host.
+const DefaultCapacityWait = 2 * time.Minute
+
+// capacityBusy reports the server's retry hint when raw is a 429 capacity_busy
+// answer (admission control: the host is momentarily full and nothing was created).
+func capacityBusy(err error, raw []byte) (time.Duration, bool) {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests {
+		return 0, false
+	}
+	var body struct {
+		Error       string  `json:"error"`
+		RetryAfterS float64 `json:"retry_after_s"`
+	}
+	if json.Unmarshal(raw, &body) != nil || body.Error != "capacity_busy" {
+		return 0, false
+	}
+	d := time.Duration(body.RetryAfterS * float64(time.Second))
+	if d < 2*time.Second {
+		d = 2 * time.Second
+	}
+	if d > time.Minute {
+		d = time.Minute
+	}
+	return d, true
+}
+
+func (c *Client) pause(ctx context.Context, d time.Duration) error {
+	if c.sleep != nil {
+		return c.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // Version is the pgrun-cli version the headers carry; the cli package sets it
@@ -191,7 +240,25 @@ func (c *Client) CreateBranch(ctx context.Context, project string, req CreateBra
 	if err := validatePathSegment("project", project); err != nil {
 		return nil, Branch{}, err
 	}
-	raw, err = c.do(ctx, http.MethodPost, branchesPath(project), req, http.StatusCreated)
+	budget := c.CapacityWait
+	if budget == 0 {
+		budget = DefaultCapacityWait
+	}
+	var waited time.Duration
+	for {
+		raw, err = c.do(ctx, http.MethodPost, branchesPath(project), req, http.StatusCreated)
+		d, busy := capacityBusy(err, raw)
+		if !busy || budget < 0 || waited+d > budget {
+			break
+		}
+		if c.OnCapacityWait != nil {
+			c.OnCapacityWait(d)
+		}
+		if perr := c.pause(ctx, d); perr != nil {
+			return raw, Branch{}, err
+		}
+		waited += d
+	}
 	if err != nil {
 		return raw, Branch{}, err
 	}

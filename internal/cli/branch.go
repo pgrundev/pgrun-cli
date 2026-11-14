@@ -91,6 +91,9 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	client := api.New(cfg.URL, cfg.Token)
+	client.OnCapacityWait = func(d time.Duration) {
+		fmt.Fprintf(stderr, "pgrun: the host is busy, retrying in %ds\n", int(d.Seconds()))
+	}
 
 	if tpl != "" && !ensureTemplateReady(client, project, tpl, define, templateWaitTimeout, stderr) {
 		return exitFailure
