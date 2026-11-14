@@ -50,10 +50,24 @@ func WaitFailureReason(name, status string) string {
 // when returning an error — so callers can still honor --json / isError with
 // whatever the API last said.
 func (c *Client) WaitForTerminal(ctx context.Context, project string, raw []byte, branch Branch) ([]byte, Branch, error) {
+	fetched := false
 	for {
 		if Terminal(branch.Status) {
+			// A create response can already say "ready" (an idempotent replay of a request_id,
+			// or a server that provisions synchronously) but never carries the connection URL:
+			// only a GET of the single branch does. Fetch it once instead of handing back a
+			// ready branch with no URL.
+			if branch.Status == StatusReady && branch.ConnectionURL == "" && !fetched {
+				fetched = true
+				var err error
+				if raw, branch, err = c.GetBranch(ctx, project, branch.Name); err != nil {
+					return raw, branch, err
+				}
+				continue
+			}
 			return raw, branch, nil
 		}
+		fetched = true
 		select {
 		case <-ctx.Done():
 			return raw, branch, ctx.Err()
