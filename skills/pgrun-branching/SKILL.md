@@ -154,6 +154,9 @@ production. Its optional AI layer is off: nothing is sent to a model provider.
 | Schema health after a change (missing FK indexes, invalid/duplicate indexes) | `pgrun bot lint <branch> --json` |
 | A database error you don't understand, or "is this database healthy?" | `pgrun bot inspect <branch> --json` |
 
+In `pgrun bot inspect` output, skip findings marked `"suppressed": true` (`fsync_off`,
+`full_page_writes_off`, `checkpoints_forced`): disposable branches run that way on purpose.
+
 Don't run `verify` after every small query or test edit — it provisions a PostgreSQL branch.
 Run it once per migration change, and again only if you change the migration.
 
