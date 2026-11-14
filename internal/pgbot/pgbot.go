@@ -36,6 +36,11 @@ const MinVersion = "0.9.0"
 // this pgrun was tested against.
 const PinnedVersion = "0.9.0"
 
+// SchemaMinVersion is the first pgbot release with `schema snapshot|diff|compare`
+// (the migration review `pgrun bot verify` needs). Until PinnedVersion reaches it,
+// verify reports `incomplete` — never `pass` — on a pgbot without it.
+const SchemaMinVersion = "0.10.0"
+
 // Capabilities are probed, not inferred from the version, so a dev build or a
 // newer release is judged by what it actually has.
 type Capabilities struct {

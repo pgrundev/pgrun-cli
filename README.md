@@ -41,6 +41,12 @@ pgrun bot explain <branch> "select * from orders where user_id = $1"
 `pgrun bot` only inspects PGRun branches (never a connection string you pass it), runs pgbot
 read-only, and never sends anything to an AI provider.
 
+`verify` reports one `verdict` — `fail`, `dangerous`, `unsupported` (PGX only), `incomplete`
+(the review could not run; never a pass), `error` (infrastructure), `warning` or `pass` — and
+`blocking` per an explicit policy (`--block-on`, default `fail,dangerous,incomplete,error`).
+Exit 0 = not blocking, 1 = blocking, 3 = only infrastructure errors block. It reviews one
+migration against the Safe Copy; it does not detect conflicts between parallel migrations.
+
 The skill teaches Claude when to create a branch, how to inject its
 `DATABASE_URL` into only the commands that need it, and when to delete it.
 Claude does the branching; you never create a branch by hand.

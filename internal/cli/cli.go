@@ -59,7 +59,7 @@ Usage:
   pgrun bot status|install [--json]               pgbot: read-only inspection and verification (see pgrun bot help)
   pgrun bot inspect|lint|schema [<project>] <branch> [--json]
   pgrun bot explain [<project>] <branch> "<SELECT …>" [--json]
-  pgrun bot verify [<project>] [--compare-pgx] [--fail-on critical|warning|none] [--json] -- <migration command…>
+  pgrun bot verify [<project>] [--compare-pgx] [--fail-on critical|warning|none] [--block-on <categories>] [--json] -- <migration command…>
   pgrun skill install [--project | --dir <dir>]   (install the pgrun-branching skill for Claude Code; default ~/.claude/skills)
   pgrun skill status [--project | --dir <dir>]
   pgrun skill show

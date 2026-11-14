@@ -159,9 +159,14 @@ Run it once per migration change, and again only if you change the migration.
 
 **Reading `pgrun bot verify --json`** (`kind: pgrun-verify`):
 
-- `verdict`: `pass` · `dangerous` (a schema-review finding at/above `--fail-on`, default
-  `critical`) · `fail` (the migration exited non-zero on PostgreSQL) · `error` (no branch).
-  Exit code 0 only for `pass`.
+- `verdict` (the highest of `categories`): `fail` (the migration exited non-zero on
+  PostgreSQL) · `dangerous` (a schema-review finding at/above `--fail-on`, default `critical`) ·
+  `unsupported` (`--compare-pgx`: PGX could not run it or produced a different schema) ·
+  `incomplete` (the review or lint could not run — this is NOT a pass) · `error` (no branch,
+  API or tool failure) · `warning` (informational findings) · `pass`.
+- `blocking`: whether a category is in `policy.block_on` (default `fail,dangerous,incomplete,error`;
+  change it with `--block-on`). Exit 0 = not blocking, 1 = blocking, 3 = only infrastructure
+  errors block.
 - `schema_review.findings[]`: `id`, `severity`, `object`, `detail`, `advice`. Act on
   `critical`/`warning`: `table_rewritten`, `index_created_on_existing_table`,
   `constraint_validated_on_existing_table`, `not_null_added` are lock hazards on large tables;
@@ -176,8 +181,9 @@ Report the verdict and the non-info findings to the user in plain words; fix wha
 example `algorithm: :concurrently`, `NOT VALID` + `VALIDATE CONSTRAINT`) and verify again.
 
 If `pgrun bot status` says pgbot is not installed, run `pgrun bot install` (or `pgrun setup`).
-If it says the `schema` review is unavailable, `verify` still runs the migration on PostgreSQL
-and lints; say that the rewrite/lock review was skipped.
+If it says the `schema` review is unavailable (pgbot older than 0.10.0), `verify` still runs the
+migration on PostgreSQL and lints, and reports `incomplete`: tell the user the rewrite/lock review
+did not run — never present that as verified.
 
 ## Framework detection (examples, not the whole story)
 

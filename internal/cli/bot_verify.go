@@ -38,7 +38,7 @@ import (
 
 const (
 	VerifyKind    = "pgrun-verify"
-	VerifyVersion = "1.0.0"
+	VerifyVersion = "1.1.0"
 )
 
 type verifyEngineRun struct {
@@ -71,9 +71,13 @@ type verifyReport struct {
 	Kind                string           `json:"kind"`
 	Version             string           `json:"version"`
 	Project             string           `json:"project"`
-	Verdict             string           `json:"verdict"` // pass | dangerous | fail | error
+	Verdict             string           `json:"verdict"` // see verdictOrder
+	Categories          []string         `json:"categories"`
+	Blocking            bool             `json:"blocking"`
+	Policy              verifyPolicy     `json:"policy"`
+	Summary             verifySummary    `json:"summary"`
 	Reasons             []string         `json:"reasons"`
-	FailOn              string           `json:"fail_on"`
+	FailOn              string           `json:"fail_on"` // = policy.fail_on (1.0.0 field, kept)
 	Postgres            *verifyEngineRun `json:"verification"`
 	SchemaReview        json.RawMessage  `json:"schema_review,omitempty"`
 	SchemaReviewSkipped string           `json:"schema_review_skipped,omitempty"`
@@ -84,6 +88,119 @@ type verifyReport struct {
 	Cleanup             []verifyCleanup  `json:"cleanup"`
 	Pgbot               string           `json:"pgbot_version"`
 	DurationMs          int64            `json:"duration_ms"`
+}
+
+// Verdicts, highest precedence first. A run collects every category that applies;
+// the verdict is the highest one, and the run BLOCKS when any collected category
+// is in the policy's block_on list. A review that could not run is "incomplete",
+// never "pass".
+//
+//	fail        the migration exited non-zero on canonical PostgreSQL (confirmed failure)
+//	dangerous   the schema review found a finding at/above --fail-on (rewrite, blocking
+//	            index build, SET NOT NULL, drop, rename, type change, …)
+//	unsupported --compare-pgx: PGX was unavailable, failed where PostgreSQL succeeded,
+//	            or produced a different schema (PostgreSQL itself was fine)
+//	incomplete  the schema review or lint could not run (e.g. a pgbot without `schema`)
+//	error       infrastructure or tool error (branch never ready, API, command not startable)
+//	warning     informational: findings below --fail-on, new lint findings, a branch
+//	            that could not be deleted (its TTL removes it)
+//	pass        everything ran and nothing was found
+var verdictOrder = []string{"fail", "dangerous", "unsupported", "incomplete", "error", "warning", "pass"}
+
+// DefaultBlockOn: warnings and PGX-only differences inform; they do not block.
+var DefaultBlockOn = []string{"fail", "dangerous", "incomplete", "error"}
+
+const exitInfra = 3 // blocking, and every blocking category is "error"
+
+type verifyPolicy struct {
+	FailOn  string   `json:"fail_on"`
+	BlockOn []string `json:"block_on"`
+}
+
+type verifySummary struct {
+	Critical int `json:"critical"`
+	Warning  int `json:"warning"`
+	Info     int `json:"info"`
+	NewLint  int `json:"new_lint"`
+}
+
+func parseBlockOn(s string) ([]string, error) {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, c := range strings.Split(s, ",") {
+		c = strings.TrimSpace(c)
+		if c == "" || c == "none" {
+			continue
+		}
+		ok := false
+		for _, v := range verdictOrder {
+			ok = ok || (v == c && v != "pass")
+		}
+		if !ok {
+			return nil, fmt.Errorf("unknown category %q (want fail, dangerous, unsupported, incomplete, error, warning or none)", c)
+		}
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (rep *verifyReport) add(category, reason string) {
+	for _, c := range rep.Categories {
+		if c == category {
+			goto reason
+		}
+	}
+	rep.Categories = append(rep.Categories, category)
+reason:
+	if reason != "" {
+		rep.Reasons = append(rep.Reasons, reason)
+	}
+}
+
+// finish derives verdict and blocking from the collected categories.
+func (rep *verifyReport) finish() {
+	rank := map[string]int{}
+	for i, v := range verdictOrder {
+		rank[v] = i
+	}
+	if len(rep.Categories) == 0 {
+		rep.Categories = []string{"pass"}
+	}
+	sortByRank := func(cs []string) {
+		for i := 1; i < len(cs); i++ {
+			for j := i; j > 0 && rank[cs[j]] < rank[cs[j-1]]; j-- {
+				cs[j], cs[j-1] = cs[j-1], cs[j]
+			}
+		}
+	}
+	sortByRank(rep.Categories)
+	rep.Verdict = rep.Categories[0]
+	rep.Blocking = false
+	for _, c := range rep.Categories {
+		for _, b := range rep.Policy.BlockOn {
+			if c == b {
+				rep.Blocking = true
+			}
+		}
+	}
+}
+
+// exitCode: 0 not blocking; 3 when only infrastructure errors block; else 1.
+func (rep *verifyReport) exitCode() int {
+	if !rep.Blocking {
+		return exitSuccess
+	}
+	for _, c := range rep.Categories {
+		for _, b := range rep.Policy.BlockOn {
+			if c == b && c != "error" {
+				return exitFailure
+			}
+		}
+	}
+	return exitInfra
 }
 
 func botVerify(args []string, stdout, stderr io.Writer) int {
@@ -98,7 +215,8 @@ func botVerify(args []string, stdout, stderr io.Writer) int {
 	comparePGX := fs.Bool("compare-pgx", false, "also run the migration on a PGX branch and compare its schema with PostgreSQL's")
 	ttl := fs.String("ttl", "1h", "TTL of the verification branches (the backstop if pgrun is killed)")
 	keep := fs.Bool("keep", false, "keep the verification branches instead of deleting them")
-	failOn := fs.String("fail-on", "critical", "exit 1 when the schema review has a finding at/above: critical|warning|none")
+	failOn := fs.String("fail-on", "critical", "a schema-review finding at/above this is `dangerous`: critical|warning|none")
+	blockOn := fs.String("block-on", strings.Join(DefaultBlockOn, ","), "categories that make the run blocking (exit non-zero): fail,dangerous,unsupported,incomplete,error,warning, or none")
 	timeout := fs.Duration("timeout", 300*time.Second, "max wait for each branch to become ready")
 	jsonOut := fs.Bool("json", false, "print the verification report as JSON (pgrun-verify/1.0.0) on stdout")
 	urlFlag, tokenFlag := addAuthFlags(fs)
@@ -119,6 +237,10 @@ func botVerify(args []string, stdout, stderr io.Writer) int {
 	case "critical", "warning", "none":
 	default:
 		return usageErrf(stderr, "bot verify: --fail-on must be critical, warning or none")
+	}
+	blocking, err := parseBlockOn(*blockOn)
+	if err != nil {
+		return usageErrf(stderr, "bot verify: --block-on: %v", err)
 	}
 	if !api.ValidTTL(*ttl) {
 		return usageErrf(stderr, "bot verify: --ttl must be one of 1h, 6h, 24h, 7d")
@@ -145,7 +267,7 @@ func botVerify(args []string, stdout, stderr io.Writer) int {
 	}
 	v := &verifier{client: client, bin: bin, project: project, from: *from, ttl: *ttl, timeout: *timeout,
 		command: command, stderr: stderr, keep: *keep}
-	rep := v.run(*engine, *comparePGX, *failOn)
+	rep := v.run(*engine, *comparePGX, verifyPolicy{FailOn: *failOn, BlockOn: blocking})
 	// Every branch URL is scrubbed from the report too (an error string that
 	// echoed one must not print it).
 	for _, u := range v.redactorURLs {
@@ -156,12 +278,7 @@ func botVerify(args []string, stdout, stderr io.Writer) int {
 	} else {
 		printVerify(stdout, rep)
 	}
-	switch rep.Verdict {
-	case "pass":
-		return exitSuccess
-	default:
-		return exitFailure
-	}
+	return rep.exitCode()
 }
 
 type verifier struct {
@@ -185,17 +302,25 @@ func randSuffix() string {
 	return hex.EncodeToString(b)
 }
 
-func (v *verifier) run(engine string, comparePGX bool, failOn string) (rep verifyReport) {
+func (v *verifier) run(engine string, comparePGX bool, policy verifyPolicy) (rep verifyReport) {
 	began := time.Now()
-	rep = verifyReport{Kind: VerifyKind, Version: VerifyVersion, Project: v.project, FailOn: failOn,
-		Pgbot: v.bin.Version, Reasons: []string{}, NewLintFindings: []lintFinding{}, Cleanup: []verifyCleanup{}}
+	failOn := policy.FailOn
+	rep = verifyReport{Kind: VerifyKind, Version: VerifyVersion, Project: v.project, FailOn: failOn, Policy: policy,
+		Pgbot: v.bin.Version, Categories: []string{}, Reasons: []string{}, NewLintFindings: []lintFinding{}, Cleanup: []verifyCleanup{}}
 	defer func() {
 		rep.Cleanup = v.cleanup()
+		for _, c := range rep.Cleanup {
+			if !c.Deleted && !c.Kept {
+				rep.add("warning", "verification branch "+c.Branch+" could not be deleted (its TTL removes it): "+c.Error)
+			}
+		}
+		rep.Summary.NewLint = len(rep.NewLintFindings)
 		rep.DurationMs = time.Since(began).Milliseconds()
+		rep.finish()
 	}()
 	work, err := os.MkdirTemp("", "pgrun-verify-*")
 	if err != nil {
-		rep.Verdict, rep.Reasons = "error", []string{err.Error()}
+		rep.add("error", err.Error())
 		return rep
 	}
 	defer os.RemoveAll(work)
@@ -222,8 +347,7 @@ func (v *verifier) run(engine string, comparePGX bool, failOn string) (rep verif
 		pgxURL = v.wait(pgxRun, pgxBranch, pgxRaw)
 	}
 	if pgURL == "" {
-		rep.Verdict = "error"
-		rep.Reasons = append(rep.Reasons, "verification branch not ready: "+pgRun.Error)
+		rep.add("error", "verification branch not ready: "+pgRun.Error)
 		return rep
 	}
 
@@ -236,14 +360,19 @@ func (v *verifier) run(engine string, comparePGX bool, failOn string) (rep verif
 			rep.SchemaReviewSkipped = "schema snapshot before the migration failed: " + err.Error()
 		}
 	} else {
-		rep.SchemaReviewSkipped = fmt.Sprintf("pgbot %s has no `schema` command (needs a newer pgbot)", v.bin.Version)
+		rep.SchemaReviewSkipped = fmt.Sprintf("pgbot %s has no `schema` command (needs pgbot %s or newer)", v.bin.Version, pgbot.SchemaMinVersion)
 	}
 	lintBefore, lintErr := v.lint(pgURL)
+	if lintErr != nil {
+		rep.add("incomplete", "lint before the migration failed: "+lintErr.Error())
+	}
 
 	code := v.migrate(pgRun, pgURL)
-	if code != 0 {
-		rep.Verdict = "fail"
-		rep.Reasons = append(rep.Reasons, fmt.Sprintf("the migration exited %d on %s", code, pgRun.Engine))
+	switch {
+	case pgRun.Error != "":
+		rep.add("error", "the migration command could not start: "+pgRun.Error)
+	case code != 0:
+		rep.add("fail", fmt.Sprintf("the migration exited %d on %s", code, pgRun.Engine))
 	}
 
 	if canReview {
@@ -255,28 +384,42 @@ func (v *verifier) run(engine string, comparePGX bool, failOn string) (rep verif
 				rep.SchemaReviewSkipped = "schema diff failed: " + err.Error()
 			} else {
 				rep.SchemaReview = json.RawMessage(out)
-				if sev := reviewSeverity(out); atOrAbove(sev, failOn) {
-					rep.Reasons = append(rep.Reasons, "schema review: "+summaryLine(out))
-					if rep.Verdict == "" {
-						rep.Verdict = "dangerous"
-					}
+				rep.Summary.Critical, rep.Summary.Warning, rep.Summary.Info = reviewCounts(out)
+				switch sev := reviewSeverity(out); {
+				case atOrAbove(sev, failOn):
+					rep.add("dangerous", "schema review: "+summaryLine(out))
+				case sev == "critical" || sev == "warning":
+					rep.add("warning", "schema review (below --fail-on "+failOn+"): "+summaryLine(out))
 				}
 			}
 		}
 	}
+	if rep.SchemaReviewSkipped != "" {
+		rep.add("incomplete", "schema review did not run: "+rep.SchemaReviewSkipped)
+	}
 	if lintErr == nil {
 		if lintAfter, err := v.lint(pgURL); err == nil {
 			rep.NewLintFindings = newFindings(lintBefore, lintAfter)
+			if len(rep.NewLintFindings) > 0 {
+				rep.add("warning", fmt.Sprintf("%d new lint finding(s) after the migration", len(rep.NewLintFindings)))
+			}
+		} else {
+			rep.add("incomplete", "lint after the migration failed: "+err.Error())
 		}
 	}
 
 	if pgxRun != nil {
 		v.verifyPGX(&rep, pgxRun, pgxURL, after, canReview && rep.SchemaReviewSkipped == "", work)
 	}
-	if rep.Verdict == "" {
-		rep.Verdict = "pass"
-	}
 	return rep
+}
+
+func reviewCounts(diff []byte) (critical, warning, info int) {
+	var d struct {
+		Summary struct{ Critical, Warning, Info int } `json:"summary"`
+	}
+	_ = json.Unmarshal(diff, &d)
+	return d.Summary.Critical, d.Summary.Warning, d.Summary.Info
 }
 
 func engineTag(engine string) string {
@@ -405,8 +548,11 @@ func (v *verifier) verifyPGX(rep *verifyReport, run *verifyEngineRun, url, pgAft
 	f := false
 	if url == "" {
 		rep.PGXCompatible = &f
-		reason := "pgx branch unavailable: " + run.Error
-		rep.Reasons = append(rep.Reasons, reason)
+		if len(run.Unavailable) > 0 {
+			rep.add("unsupported", "PGX is not available for this project: "+run.Error)
+		} else {
+			rep.add("error", "pgx branch unavailable: "+run.Error)
+		}
 		return
 	}
 	code := v.migrate(run, url)
@@ -416,25 +562,45 @@ func (v *verifier) verifyPGX(rep *verifyReport, run *verifyEngineRun, url, pgAft
 	}
 	compatible := code == pgCode
 	if !compatible {
-		rep.Reasons = append(rep.Reasons, fmt.Sprintf("the migration exited %d on PGX but %d on PostgreSQL", code, pgCode))
+		rep.add("unsupported", fmt.Sprintf("the migration exited %d on PGX but %d on PostgreSQL", code, pgCode))
 	}
-	if comparable {
-		pgxAfter := filepath.Join(work, "pgx-after.json")
-		if err := v.pgbotToFile(url, pgxAfter, "schema", "snapshot"); err != nil {
-			rep.Reasons = append(rep.Reasons, "pgx schema snapshot failed: "+err.Error())
-			compatible = false
-		} else if out, _, err := pgbot.Output(context.Background(), v.bin, "", "schema", "compare", pgxAfter, pgAfter,
-			"--format", "json", "--a-label", "pgx", "--b-label", "postgres"); err == nil {
-			rep.PGXComparison = json.RawMessage(out)
-			var cmp struct {
-				Identical   bool              `json:"identical"`
-				Differences []json.RawMessage `json:"differences"`
-			}
-			if json.Unmarshal(out, &cmp) == nil && !cmp.Identical {
-				compatible = false
-				rep.Reasons = append(rep.Reasons, fmt.Sprintf("PGX produced a different schema than PostgreSQL (%d differences)", len(cmp.Differences)))
-			}
+	if !comparable {
+		// Without a schema review there is no PGX comparison either: say so,
+		// never report a match that was not checked.
+		rep.PGXCompatible = nil
+		if compatible {
+			rep.add("incomplete", "PGX schema comparison did not run (no schema review)")
+		} else {
+			rep.PGXCompatible = &f
 		}
+		return
+	}
+	pgxAfter := filepath.Join(work, "pgx-after.json")
+	if err := v.pgbotToFile(url, pgxAfter, "schema", "snapshot"); err != nil {
+		rep.add("incomplete", "pgx schema snapshot failed: "+err.Error())
+		rep.PGXCompatible = nil
+		return
+	}
+	out, _, err := pgbot.Output(context.Background(), v.bin, "", "schema", "compare", pgxAfter, pgAfter,
+		"--format", "json", "--a-label", "pgx", "--b-label", "postgres")
+	if err != nil {
+		rep.add("incomplete", "pgx schema compare failed: "+err.Error())
+		rep.PGXCompatible = nil
+		return
+	}
+	rep.PGXComparison = json.RawMessage(out)
+	var cmp struct {
+		Identical   bool              `json:"identical"`
+		Differences []json.RawMessage `json:"differences"`
+	}
+	if json.Unmarshal(out, &cmp) != nil {
+		rep.add("incomplete", "pgx schema compare returned an unreadable report")
+		rep.PGXCompatible = nil
+		return
+	}
+	if !cmp.Identical {
+		compatible = false
+		rep.add("unsupported", fmt.Sprintf("PGX produced a different schema than PostgreSQL (%d differences)", len(cmp.Differences)))
 	}
 	rep.PGXCompatible = &compatible
 }
@@ -508,7 +674,11 @@ func summaryLine(diff []byte) string {
 }
 
 func printVerify(w io.Writer, rep verifyReport) {
-	fmt.Fprintf(w, "verify %s: %s\n", rep.Project, strings.ToUpper(rep.Verdict))
+	block := "not blocking"
+	if rep.Blocking {
+		block = "BLOCKING (policy: " + strings.Join(rep.Policy.BlockOn, ",") + ")"
+	}
+	fmt.Fprintf(w, "verify %s: %s — %s; categories: %s\n", rep.Project, strings.ToUpper(rep.Verdict), block, strings.Join(rep.Categories, ", "))
 	if r := rep.Postgres; r != nil {
 		code := "-"
 		if r.ExitCode != nil {
