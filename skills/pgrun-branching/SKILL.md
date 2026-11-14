@@ -32,7 +32,10 @@ its TTL expires.
 
 **First use in a session:** run `pgrun setup --json` (idempotent). It installs or refreshes this
 skill and PgBot and reports `ready`, the `capabilities` available, and any `next` steps. If
-`auth` is `missing`, tell the user to run `pgrun auth login` themselves.
+`auth` is `missing`, tell the user to run `pgrun auth login` themselves. If `pgrun` itself is not
+installed (you got this skill some other way), ask the user to install it —
+`curl -fsSL https://pgrun.dev/install | sh` — rather than running an installer yourself; then
+`pgrun setup --json`. Both paths end in the same setup.
 
 ## When to use this
 
