@@ -73,7 +73,7 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		}
 		var code int
 		var ok bool
-		project, code, ok = resolveProject(explicit, stderr)
+		project, code, ok = resolveProject(explicit, rest, stderr)
 		if !ok {
 			return code
 		}
@@ -83,7 +83,7 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		name = pos[0]
 		var code int
 		var ok bool
-		project, code, ok = resolveProject("", stderr)
+		project, code, ok = resolveProject("", rest, stderr)
 		if !ok {
 			return code
 		}
@@ -110,6 +110,9 @@ func branchExec(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	client := api.New(cfg.URL, cfg.Token)
+	client.OnCapacityWait = func(d time.Duration) {
+		fmt.Fprintf(stderr, "pgrun: the host is busy, retrying in %ds\n", int(d.Seconds()))
+	}
 
 	// From here on a SIGINT/SIGTERM/SIGHUP (a CI runner cancelling the job,
 	// a Ctrl-C) must not kill pgrun outright: that would skip --delete-after

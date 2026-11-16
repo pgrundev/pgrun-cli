@@ -44,7 +44,7 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 1 {
 		explicit = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -91,6 +91,9 @@ func branchCreate(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	client := api.New(cfg.URL, cfg.Token)
+	client.OnCapacityWait = func(d time.Duration) {
+		fmt.Fprintf(stderr, "pgrun: the host is busy, retrying in %ds\n", int(d.Seconds()))
+	}
 
 	if tpl != "" && !ensureTemplateReady(client, project, tpl, define, templateWaitTimeout, stderr) {
 		return exitFailure
@@ -168,7 +171,7 @@ func branchList(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 1 {
 		explicit = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -216,7 +219,7 @@ func branchGet(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -264,7 +267,7 @@ func branchURL(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}
@@ -317,7 +320,7 @@ func branchDelete(args []string, stdout, stderr io.Writer) int {
 	} else {
 		name = pos[0]
 	}
-	project, code, ok := resolveProject(explicit, stderr)
+	project, code, ok := resolveProject(explicit, rest, stderr)
 	if !ok {
 		return code
 	}

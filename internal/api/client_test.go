@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestServer returns a client wired to a fresh httptest server and the
@@ -425,5 +426,61 @@ func TestRequestHeaders_IdentifyClient(t *testing.T) {
 		if gotUA != "pgrun-cli/1.2.3" {
 			t.Fatalf("User-Agent = %q", gotUA)
 		}
+	}
+}
+
+// Admission control (server 2026-11-14): 429 capacity_busy creates nothing, so the
+// create is sent again after the server's hint, within CapacityWait.
+func TestCreateBranch_WaitsOnCapacityBusyThenCreates(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts++
+		if posts <= 2 {
+			w.Header().Set("Retry-After", "15")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"capacity_busy","retry_after_s":15}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"name":"feat","status":"creating"}`))
+	}))
+	defer srv.Close()
+	var slept []time.Duration
+	c := &Client{BaseURL: srv.URL, Token: "t", sleep: func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }}
+	_, b, err := c.CreateBranch(context.Background(), "proj1", CreateBranchRequest{Name: "feat"})
+	if err != nil || b.Name != "feat" || posts != 3 {
+		t.Fatalf("err=%v branch=%+v posts=%d", err, b, posts)
+	}
+	if len(slept) != 2 || slept[0] != 15*time.Second {
+		t.Fatalf("slept %v", slept)
+	}
+}
+
+func TestCreateBranch_CapacityWaitBoundsAndOtherErrorsAreNotRetried(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"capacity_busy","retry_after_s":30}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, Token: "t", CapacityWait: 60 * time.Second,
+		sleep: func(context.Context, time.Duration) error { return nil }}
+	if _, _, err := c.CreateBranch(context.Background(), "proj1", CreateBranchRequest{Name: "feat"}); err == nil {
+		t.Fatal("still busy after the budget: the 429 is returned")
+	}
+	if posts != 3 { // 30 s + 30 s = budget, the third answer ends it
+		t.Fatalf("posts=%d", posts)
+	}
+	quota := 0
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		quota++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+	}))
+	defer srv2.Close()
+	c2 := &Client{BaseURL: srv2.URL, Token: "t", sleep: func(context.Context, time.Duration) error { return nil }}
+	if _, _, err := c2.CreateBranch(context.Background(), "proj1", CreateBranchRequest{Name: "feat"}); err == nil || quota != 1 {
+		t.Fatalf("a 429 that is not capacity_busy is not retried: posts=%d", quota)
 	}
 }

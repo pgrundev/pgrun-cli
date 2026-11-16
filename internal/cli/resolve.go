@@ -44,9 +44,17 @@ func leadingPositionals(args []string) (positionals, rest []string) {
 // directory's .pgrun/project file (see config.FindProject, which walks up
 // like git finding .git). Neither present is a usage error, not an
 // operation failure — there's nothing to contact the API about yet.
-func resolveProject(explicit string, stderr io.Writer) (slug string, code int, ok bool) {
+//
+// rest is the flag tail that follows the positionals. `--help`/`-h` in it
+// means the caller is about to print the subcommand's usage, which needs no
+// project: the lookup is skipped so help works from any directory instead
+// of failing on "no project given" first.
+func resolveProject(explicit string, rest []string, stderr io.Writer) (slug string, code int, ok bool) {
 	if explicit != "" {
 		return explicit, exitSuccess, true
+	}
+	if wantsHelp(rest) {
+		return "", exitSuccess, true
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -63,4 +71,18 @@ func resolveProject(explicit string, stderr io.Writer) (slug string, code int, o
 		return "", exitUsage, false
 	}
 	return slug, exitSuccess, true
+}
+
+// wantsHelp reports whether a flag tail asks for usage (-h, --help, -help),
+// looked at before the flag package parses it.
+func wantsHelp(rest []string) bool {
+	for _, a := range rest {
+		switch a {
+		case "-h", "--help", "-help":
+			return true
+		case "--":
+			return false
+		}
+	}
+	return false
 }
