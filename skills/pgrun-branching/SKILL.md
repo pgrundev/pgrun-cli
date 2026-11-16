@@ -1,6 +1,6 @@
 ---
 name: pgrun-branching
-description: Use when a coding task needs a real disposable Postgres — a migration, a schema change, a DB-dependent test, or "test this against real data." Creates an isolated PGRun branch, hands you its DATABASE_URL, and deletes it when you're done. Framework-independent (Rails, Django, Prisma, or anything else that reads DATABASE_URL).
+description: Use when a coding task needs a real disposable Postgres — a migration, a schema change, a DB-dependent test, or "test this against real data" — or when you need to check a schema change before finishing. Creates an isolated PGRun branch (PGX by default where the project allows it, PostgreSQL otherwise), hands you its DATABASE_URL, deletes it when you're done, and verifies migrations against real PostgreSQL with PgBot (`pgrun bot verify`). Framework-independent (Rails, Django, Prisma, or anything else that reads DATABASE_URL).
 ---
 
 # pgrun branching
@@ -15,6 +15,27 @@ matters, this skill applies regardless of what's reading that URL.
 A PGRun branch is copy-on-write off a project's base branch, ready in about
 the time a normal database takes to boot, gone the moment you delete it or
 its TTL expires.
+
+## What you have
+
+1. **PGRun creates isolated database branches** — copy-on-write copies of the project's Safe
+   Copy (a privacy-safe copy of production), one per task, deleted when you are done.
+2. **PGX is the default runtime** where the project allows it: a lightweight
+   PostgreSQL-compatible engine, so a branch is cheap and fast to start. The server decides per
+   branch and falls back to PostgreSQL when PGX cannot serve the project (an extension it lacks,
+   a large base); the branch JSON's `engine` and `engine_reason` say which and why.
+3. **PgBot inspects and verifies database changes**, read-only: schema, lint findings, query
+   plans, and a migration review that flags table rewrites, blocking index builds, drops and
+   renames.
+4. **PostgreSQL verification is on demand**: `pgrun bot verify` runs your migration on a
+   disposable *PostgreSQL* branch of the same Safe Copy, reports, and deletes it.
+
+**First use in a session:** run `pgrun setup --json` (idempotent). It installs or refreshes this
+skill and PgBot and reports `ready`, the `capabilities` available, and any `next` steps. If
+`auth` is `missing`, tell the user to run `pgrun auth login` themselves. If `pgrun` itself is not
+installed (you got this skill some other way), ask the user to install it —
+`curl -fsSL https://pgrun.dev/install | sh` — rather than running an installer yourself; then
+`pgrun setup --json`. Both paths end in the same setup.
 
 ## When to use this
 
@@ -69,8 +90,9 @@ normally — the rest of this skill applies unchanged.
      second call needed). The server picks the engine (PGX Beta when the
      project is eligible, else PostgreSQL); add `--engine postgres` when the
      task needs the source's exact engine, extensions or settings, or
-     `--engine pgx` to insist on PGX Beta (an `engine_unavailable` error
-     instead of a silent fallback).
+     `--engine pgx` to insist on PGX (an `engine_unavailable` error that
+     names the reason and offers PostgreSQL, never a silent switch). An
+     engine you name explicitly is always respected.
    - or reuse one you already created: `pgrun branch env <project> <name>`.
 > The URL is a TLS endpoint on a per-branch hostname and already contains
 > `sslmode=require`. Use it exactly as given — do not rewrite the host, the port
@@ -115,6 +137,57 @@ is the command's own exit code. This is the default choice unless something
 about the task needs the branch to outlive one command (e.g., a migration
 followed by a separate manual verification step).
 
+## Verify before you finish: PgBot
+
+PgBot is read-only. `pgrun bot` only ever inspects PGRun branches (it resolves them through the
+API with the project's token and never accepts a connection string), so it cannot reach
+production. Its optional AI layer is off: nothing is sent to a model provider.
+
+**When to invoke it**
+
+| Situation | Command |
+|---|---|
+| You wrote or changed a migration (any `ALTER`, `CREATE INDEX`, `DROP`, rename) | `pgrun bot verify --json -- <migrate command>` before you report the task done |
+| You developed against a PGX branch and the change is schema-level | add `--compare-pgx`: same migration on PGX and PostgreSQL, schemas compared |
+| You need the current schema of a branch (tables, columns, indexes, constraints) | `pgrun bot schema <branch>` (JSON, catalog only, no data) |
+| A query is slow or you added a query on a large table | `pgrun bot explain <branch> "<SELECT …>" --json` (plan only, never executed) |
+| Schema health after a change (missing FK indexes, invalid/duplicate indexes) | `pgrun bot lint <branch> --json` |
+| A database error you don't understand, or "is this database healthy?" | `pgrun bot inspect <branch> --json` |
+
+In `pgrun bot inspect` output, skip findings marked `"suppressed": true` (`fsync_off`,
+`full_page_writes_off`, `checkpoints_forced`): disposable branches run that way on purpose.
+
+Don't run `verify` after every small query or test edit — it provisions a PostgreSQL branch.
+Run it once per migration change, and again only if you change the migration.
+
+**Reading `pgrun bot verify --json`** (`kind: pgrun-verify`):
+
+- `verdict` (the highest of `categories`): `fail` (the migration exited non-zero on
+  PostgreSQL) · `dangerous` (a schema-review finding at/above `--fail-on`, default `critical`) ·
+  `unsupported` (`--compare-pgx`: PGX could not run it or produced a different schema) ·
+  `incomplete` (the review or lint could not run — this is NOT a pass) · `error` (no branch,
+  API or tool failure) · `warning` (informational findings) · `pass`.
+- `blocking`: whether a category is in `policy.block_on` (default `fail,dangerous,incomplete,error`;
+  change it with `--block-on`). Exit 0 = not blocking, 1 = blocking, 3 = only infrastructure
+  errors block.
+- `schema_review.findings[]`: `id`, `severity`, `object`, `detail`, `advice`. Act on
+  `critical`/`warning`: `table_rewritten`, `index_created_on_existing_table`,
+  `constraint_validated_on_existing_table`, `not_null_added` are lock hazards on large tables;
+  `table_dropped`/`column_dropped` lose data; `*_renamed` breaks code that is still deployed.
+  Sizes are the Safe Copy's — production may be larger.
+- `new_lint_findings[]`: schema findings the migration introduced.
+- `pgx_compatible` / `pgx_comparison` (with `--compare-pgx`): whether PGX produced the same
+  schema and exit code. If not, verify and ship against PostgreSQL behaviour, and say so.
+- `cleanup[]`: every verification branch and whether it was deleted.
+
+Report the verdict and the non-info findings to the user in plain words; fix what you can (for
+example `algorithm: :concurrently`, `NOT VALID` + `VALIDATE CONSTRAINT`) and verify again.
+
+If `pgrun bot status` says pgbot is not installed, run `pgrun bot install` (or `pgrun setup`).
+If it says the `schema` review is unavailable (pgbot older than 0.10.0), `verify` still runs the
+migration on PostgreSQL and lints, and reports `incomplete`: tell the user the rewrite/lock review
+did not run — never present that as verified.
+
 ## Framework detection (examples, not the whole story)
 
 Detect the project's stack from what's on disk, then run its normal
@@ -137,8 +210,10 @@ framework command — the pattern is "inject the env var," not "always type
 
 **CLI** — see above, plus `pgrun auth login`/`pgrun auth status`.
 
-**MCP tools** (`pgrun mcp serve`, four tools:
-`pgrun_create_branch`/`pgrun_list_branches`/`pgrun_get_branch`/`pgrun_delete_branch`):
+**MCP tools** (`pgrun mcp serve`: `pgrun_create_branch`/`pgrun_list_branches`/
+`pgrun_get_branch`/`pgrun_delete_branch`, plus read-only PgBot tools `pgrun_bot_lint`,
+`pgrun_bot_schema`, `pgrun_bot_explain` that take `{project, name}`; migration
+verification stays the CLI's `pgrun bot verify`):
 call `pgrun_create_branch{project,name,ttl[,engine]}` with `wait` left at its default
 (`true`) — the result JSON carries `database_url` (and `connection_url`)
 once the branch is ready. Call `pgrun_delete_branch{project,name}` when

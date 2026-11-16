@@ -54,6 +54,12 @@ Usage:
   pgrun auth logout
   pgrun auth set --token <token> [--url <url>]    (advanced/CI — see PGRUN_API_TOKEN/PGRUN_API_URL below)
   pgrun auth status
+  pgrun setup [--agent claude,codex | --project | --dir <dir>] [--agents-md <file>] [--no-bot] [--json]
+                                                  (idempotent: skill + pgbot + auth check; the one install path)
+  pgrun bot status|install [--json]               pgbot: read-only inspection and verification (see pgrun bot help)
+  pgrun bot inspect|lint|schema [<project>] <branch> [--json]
+  pgrun bot explain [<project>] <branch> "<SELECT …>" [--json]
+  pgrun bot verify [<project>] [--compare-pgx] [--fail-on critical|warning|none] [--block-on <categories>] [--json] -- <migration command…>
   pgrun skill install [--project | --dir <dir>]   (install the pgrun-branching skill for Claude Code; default ~/.claude/skills)
   pgrun skill status [--project | --dir <dir>]
   pgrun skill show
@@ -92,6 +98,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runAuth(args[1:], stdout, stderr)
 	case "skill":
 		return runSkill(args[1:], stdout, stderr)
+	case "setup":
+		return runSetup(args[1:], stdout, stderr)
+	case "bot":
+		return runBot(args[1:], stdout, stderr)
 	case "mcp":
 		return runMCP(args[1:], stdout, stderr)
 	case "version":
