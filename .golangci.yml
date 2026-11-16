@@ -1,0 +1,28 @@
+# Minimal lint baseline for pgrun-cli (golangci-lint v2, default linters: errcheck, govet,
+# ineffassign, staticcheck, unused). The exclusions are the accepted patterns of a CLI, not bugs:
+#   - writes to the user's terminal (fmt/tabwriter/io to stdout/stderr) and best-effort cleanup
+#     (Close, Remove, RemoveAll, waiting on a launched browser) are intentionally unchecked;
+#   - tests: unchecked fixture writes, and staticcheck's quick-fix style hints.
+version: "2"
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - io.WriteString
+        - (io.Writer).Write
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*text/tabwriter.Writer).Flush
+        - (net/http.ResponseWriter).Write
+        - (*os/exec.Cmd).Wait
+        - os.Remove
+        - os.RemoveAll
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]
+      - linters: [staticcheck]
+        text: "QF1002"
