@@ -34,7 +34,7 @@ const MinVersion = "0.9.0"
 
 // PinnedVersion is what `pgrun bot install` downloads by default: the release
 // this pgrun was tested against.
-const PinnedVersion = "0.9.0"
+const PinnedVersion = "0.10.0"
 
 // SchemaMinVersion is the first pgbot release with `schema snapshot|diff|compare`
 // (the migration review `pgrun bot verify` needs). Until PinnedVersion reaches it,
