@@ -17,3 +17,10 @@ const PgrunBranchingName = "pgrun-branching"
 //
 //go:embed pgrun-branching/SKILL.md
 var PgrunBranching string
+
+// AgentsBlock is the short, pgrun-managed section `pgrun setup --agents-md
+// <file>` writes between its markers in an AGENTS.md-style file, for agents
+// that read project instructions rather than skills.
+//
+//go:embed agents-block.md
+var AgentsBlock string

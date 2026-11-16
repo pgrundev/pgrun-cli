@@ -4,7 +4,8 @@
 //
 // Four tools mirror the CLI's branch subcommands exactly:
 // pgrun_create_branch, pgrun_list_branches, pgrun_get_branch,
-// pgrun_delete_branch.
+// pgrun_delete_branch. Three more (bot_tools.go) run PgBot read-only on a
+// branch: pgrun_bot_lint, pgrun_bot_schema, pgrun_bot_explain.
 package mcpserver
 
 import (

@@ -1,7 +1,7 @@
 {
   "name": "@pgrun/cli",
   "version": "0.0.0-dev",
-  "description": "Create, use, and delete disposable PGRun Postgres branches — CLI and MCP server.",
+  "description": "Create, use, and delete disposable PGRun Postgres branches \u2014 CLI and MCP server.",
   "keywords": [
     "postgres",
     "postgresql",
@@ -24,6 +24,9 @@
     "bin/pgrun.js",
     "README.md"
   ],
+  "dependencies": {
+    "@pgbot/cli": "^0.9.0"
+  },
   "optionalDependencies": {
     "@pgrun/linux-x64": "0.0.0-dev",
     "@pgrun/linux-arm64": "0.0.0-dev",

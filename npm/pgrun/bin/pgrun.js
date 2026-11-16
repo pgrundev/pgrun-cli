@@ -30,6 +30,34 @@ function resolveBinary(platform, arch) {
   }
 }
 
+// pgbot ships as its own npm package (@pgbot/cli, a regular dependency of
+// @pgrun/cli), so `npm i @pgrun/cli` makes `pgrun bot` work with no second
+// download. Its platform binary is found the same way as ours and handed to
+// the Go binary through PGRUN_PGBOT — unless the user already chose one.
+function resolvePgbot(platform, arch) {
+  try {
+    const pkgJson = require.resolve(`@pgbot/${platform}-${arch}/package.json`);
+    const p = path.join(path.dirname(pkgJson), 'bin', platform === 'win32' ? 'pgbot.exe' : 'pgbot');
+    return fs.existsSync(p) ? p : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function childEnv(env, platform, arch) {
+  if (env.PGRUN_PGBOT) return env;
+  const p = resolvePgbot(platform, arch);
+  if (!p) return env;
+  if (platform !== 'win32') {
+    try {
+      fs.chmodSync(p, 0o755);
+    } catch (_) {
+      /* best effort */
+    }
+  }
+  return Object.assign({}, env, { PGRUN_PGBOT: p });
+}
+
 function main() {
   const platform = process.platform; // 'linux' | 'darwin' | 'win32' | ...
   const arch = process.arch; // 'x64' | 'arm64' | ...
@@ -57,7 +85,10 @@ function main() {
     }
   }
 
-  const child = spawn(binPath, process.argv.slice(2), { stdio: 'inherit' });
+  const child = spawn(binPath, process.argv.slice(2), {
+    stdio: 'inherit',
+    env: childEnv(process.env, platform, arch),
+  });
 
   // Forward termination signals so the Go binary's own signal handling still
   // fires when npx is interrupted.
@@ -90,5 +121,5 @@ function main() {
 if (require.main === module) {
   main();
 } else {
-  module.exports = { pkgFor, exeName, resolveBinary };
+  module.exports = { pkgFor, exeName, resolveBinary, resolvePgbot, childEnv };
 }
